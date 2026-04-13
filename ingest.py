@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
+import re
 import uuid
 from pathlib import Path
 
@@ -51,3 +51,25 @@ def archive_destination(original: Path) -> Path:
     safe_stem = original.stem[:80]
     unique = uuid.uuid4().hex[:10]
     return ARCHIVE_DIR / f"{unique}_{safe_stem}{original.suffix.lower()}"
+
+
+def safe_inbox_filename(original_name: str) -> str:
+    """Dateiname nur für den Posteingang; verhindert Pfad-Manipulation."""
+    base = Path(original_name).name.strip()
+    if not base.lower().endswith(".pdf"):
+        base = (base + ".pdf") if base else "upload.pdf"
+    stem, suf = base[:-4], base[-4:].lower()
+    stem = re.sub(r"[^\w\s.\-äöüÄÖÜß]+", "_", stem, flags=re.UNICODE).strip("._ ") or "scan"
+    stem = stem[:120]
+    return f"{stem}{suf}"
+
+
+def save_uploaded_pdf_to_inbox(data: bytes, original_name: str) -> Path:
+    """Schreibt Bytes in den Posteingang; bei Namenskollision ein kurzes Suffix."""
+    INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    name = safe_inbox_filename(original_name)
+    dest = INBOX_DIR / name
+    if dest.exists():
+        dest = INBOX_DIR / f"{dest.stem}_{uuid.uuid4().hex[:6]}{dest.suffix}"
+    dest.write_bytes(data)
+    return dest

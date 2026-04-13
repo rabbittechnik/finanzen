@@ -303,3 +303,33 @@ def matter_ids_for_document(document_id: int) -> list[int]:
             (document_id,),
         ).fetchall()
         return [int(r["matter_id"]) for r in rows]
+
+
+def document_ids_for_reference_key(id_type: str, key_value: str) -> list[int]:
+    """Alle Dokumente mit derselben Kennung (Typ + Wert)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT document_id FROM reference_keys
+            WHERE id_type = ? AND key_value = ?
+            ORDER BY document_id
+            """,
+            (id_type, key_value),
+        ).fetchall()
+        return [int(r["document_id"]) for r in rows]
+
+
+def find_matter_for_reference_key(id_type: str, key_value: str) -> int | None:
+    """Ein bereits existierender Vorgang, der ein Dokument mit dieser Kennung enthält."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT dm.matter_id
+            FROM reference_keys rk
+            INNER JOIN document_matters dm ON dm.document_id = rk.document_id
+            WHERE rk.id_type = ? AND rk.key_value = ?
+            LIMIT 1
+            """,
+            (id_type, key_value),
+        ).fetchone()
+        return int(row["matter_id"]) if row else None

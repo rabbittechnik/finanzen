@@ -1,0 +1,131 @@
+"""Globale Neon-Dark Styles (Streamlit + config.toml)."""
+from __future__ import annotations
+
+import streamlit as st
+
+
+def inject_neon_styles() -> None:
+    st.markdown(
+        """
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
+  html, body, [data-testid="stAppViewContainer"] {
+    font-family: "DM Sans", system-ui, sans-serif !important;
+  }
+
+  [data-testid="stAppViewContainer"] {
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(0, 245, 212, 0.12), transparent 55%),
+      radial-gradient(900px 500px at 88% 0%, rgba(183, 148, 246, 0.1), transparent 50%),
+      linear-gradient(180deg, #070a12 0%, #0a0f18 100%) !important;
+  }
+
+  [data-testid="stHeader"] { background: rgba(7, 10, 18, 0.85) !important; backdrop-filter: blur(8px); }
+
+  [data-testid="stSidebar"] {
+    background: linear-gradient(175deg, #0c101a 0%, #0a0e14 100%) !important;
+    border-right: 1px solid rgba(0, 245, 212, 0.18) !important;
+    box-shadow: 4px 0 32px rgba(0, 0, 0, 0.35);
+  }
+  [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    color: #b8c5d6 !important;
+  }
+
+  h1 {
+    font-weight: 700 !important;
+    letter-spacing: -0.03em !important;
+    font-size: 2.1rem !important;
+    background: linear-gradient(110deg, #00f5d4 0%, #6ee7ff 42%, #c4b5fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 24px rgba(0, 245, 212, 0.25));
+  }
+
+  h2, h3, h4 { color: #f0f4fa !important; font-weight: 600 !important; }
+
+  [data-testid="stTabs"] [role="tab"] {
+    color: #8b9cb3 !important;
+    font-weight: 600 !important;
+  }
+  [data-testid="stTabs"] [aria-selected="true"] {
+    color: #00f5d4 !important;
+    border-bottom-color: #00f5d4 !important;
+    text-shadow: 0 0 18px rgba(0, 245, 212, 0.45);
+  }
+
+  div[data-testid="stExpander"] details {
+    border: 1px solid rgba(0, 245, 212, 0.15) !important;
+    border-radius: 10px !important;
+    background: rgba(15, 20, 30, 0.55) !important;
+  }
+
+  .stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #00c9aa 0%, #00f5d4 50%, #5eead4 100%) !important;
+    color: #041016 !important;
+    font-weight: 700 !important;
+    border: none !important;
+    box-shadow: 0 0 20px rgba(0, 245, 212, 0.35), 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+    transition: transform 0.12s ease, box-shadow 0.12s ease !important;
+  }
+  .stButton > button[kind="primary"]:hover {
+    box-shadow: 0 0 28px rgba(0, 245, 212, 0.55), 0 6px 20px rgba(0, 0, 0, 0.4) !important;
+    transform: translateY(-1px);
+  }
+
+  .stButton > button[kind="secondary"] {
+    border-color: rgba(0, 245, 212, 0.35) !important;
+    color: #b8fff4 !important;
+  }
+
+  div[data-baseweb="select"] > div {
+    border-color: rgba(0, 245, 212, 0.2) !important;
+  }
+
+  .neon-card {
+    border: 1px solid rgba(0, 245, 212, 0.12);
+    border-radius: 14px;
+    padding: 1rem 1.15rem;
+    background: rgba(12, 16, 26, 0.65);
+    margin-bottom: 0.75rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .sidebar-brand {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #00f5d4;
+    text-shadow: 0 0 20px rgba(0, 245, 212, 0.5);
+    margin-bottom: 0.35rem;
+  }
+  .sidebar-muted {
+    font-size: 0.88rem;
+    color: #94a3b8;
+    line-height: 1.45;
+  }
+  .pill-ok {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(0, 245, 212, 0.12);
+    color: #5eead4;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border: 1px solid rgba(0, 245, 212, 0.35);
+  }
+  .pill-warn {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.1);
+    color: #fcd34d;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+  }
+</style>
+        """,
+        unsafe_allow_html=True,
+    )

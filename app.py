@@ -7,7 +7,8 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
-from config import ARCHIVE_DIR, DATA_DIR, DB_PATH, INBOX_DIR, LLM_TEXT_CHAR_LIMIT
+from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
+from ingest import save_uploaded_pdf_to_inbox
 from db import (
     create_matter,
     documents_for_matter,
@@ -21,9 +22,10 @@ from db import (
     matter_ids_for_document,
     unlink_document_from_matter,
 )
-from import_jobs import import_inbox_pdfs, run_llm_on_document
+from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
+from ui_theme import inject_neon_styles
 
 load_dotenv()
 
@@ -56,33 +58,95 @@ ROLE_DE = {
 
 
 def main() -> None:
-    st.set_page_config(page_title="Dokumenten-Organizer", layout="wide")
+    st.set_page_config(
+        page_title="Dokumenten-Organizer",
+        layout="wide",
+        page_icon="📄",
+    )
+    inject_neon_styles()
     init_db()
+    if "auto_matter_after_llm" not in st.session_state:
+        st.session_state.auto_matter_after_llm = True
     maybe_show_home_overlay()
 
     st.title("Dokumenten-Organizer")
-    st.caption("Erfassung, Textauszug, KI-Strukturierung und Vorgänge über gemeinsame Kennungen.")
+    st.markdown(
+        '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
+        "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
+        "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
+        "</p></div>",
+        unsafe_allow_html=True,
+    )
 
     with st.sidebar:
-        st.subheader("Pfade")
-        st.text(f"Daten: {DATA_DIR}")
-        st.text(f"Posteingang: {INBOX_DIR}")
-        st.text(f"Archiv: {ARCHIVE_DIR}")
-        st.text(f"DB: {DB_PATH}")
+        st.markdown(
+            '<p class="sidebar-brand">Organizer</p>'
+            '<p class="sidebar-muted">Deine Unterlagen bleiben auf diesem Server. '
+            "Zum Einlesen einfach PDFs oben hochladen oder den Posteingang nutzen.</p>",
+            unsafe_allow_html=True,
+        )
+        st.divider()
+        key_set = bool(os.environ.get("OPENAI_API_KEY"))
+        if key_set:
+            st.markdown('<span class="pill-ok">KI-Verbindung aktiv</span>', unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<span class="pill-warn">KI: Schlüssel fehlt</span>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Lege `OPENAI_API_KEY` in den Einstellungen deines Hostings "
+                "(z. B. Railway → Variables) an."
+            )
+        st.caption(f"Pro Analyse maximal ca. {LLM_TEXT_CHAR_LIMIT:,} Zeichen Text an die KI.")
+        st.divider()
+        st.checkbox(
+            "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
+            key="auto_matter_after_llm",
+            help=(
+                "Wenn die KI eine Kunden- oder Vertragsnummer findet, werden alle Dokumente "
+                "mit derselben Kennung einem Vorgang zugeordnet (neu oder bestehend)."
+            ),
+        )
         st.divider()
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
-        st.divider()
-        key_set = bool(os.environ.get("OPENAI_API_KEY"))
-        st.write("API-Schlüssel: " + ("gesetzt" if key_set else "**fehlt** (.env / OPENAI_API_KEY)"))
-        st.caption(f"KI-Textlimit: {LLM_TEXT_CHAR_LIMIT} Zeichen")
 
     tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
 
     with tab_inbox:
-        st.subheader("PDFs aus Posteingang importieren")
+        st.subheader("PDFs hochladen")
+        st.write("PDFs hier ablegen – optional gleich ins Archiv übernehmen (wie Posteingang).")
+        up = st.file_uploader(
+            "Dateien wählen",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
+        auto_import = st.checkbox("Hochgeladene PDFs sofort einlesen", value=True)
+        if up:
+            if st.button("Upload starten", type="primary"):
+                for f in up:
+                    path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                    st.caption(f"Gespeichert: `{path.name}`")
+                    if auto_import:
+                        with st.spinner(f"Import: {path.name}…"):
+                            r = import_one_pdf(path)
+                        if r["status"] == "duplicate":
+                            st.warning(f'Duplikat: **{r["filename"]}**')
+                        elif r["status"] == "error":
+                            st.error(r.get("message", "Fehler"))
+                        else:
+                            ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
+                            st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
+                st.rerun()
+
+        st.divider()
+        st.subheader("Posteingang vom Server")
         st.write(
-            "Legen Sie PDF-Dateien in den Ordner **inbox** (siehe Sidebar), dann auf **Jetzt einlesen**."
+            "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
+            "kannst du dort PDFs ablegen und mit **Jetzt einlesen** importieren. "
+            "Am einfachsten nutzt du den **Upload** oben."
         )
         if st.button("Jetzt einlesen", type="primary"):
             with st.spinner("Import läuft…"):
@@ -116,9 +180,10 @@ def main() -> None:
             with c1:
                 st.markdown("#### Metadaten")
                 st.write(f"**Datei:** {doc['original_filename']}")
-                st.write(f"**Archiv:** `{doc['stored_path']}`")
-                st.write(f"**SHA256:** `{doc['sha256'][:16]}…`")
                 st.write(f"**Zeichen Text:** {doc['text_char_count']}")
+                with st.expander("Technische Details", expanded=False):
+                    st.code(doc["stored_path"] or "—", language=None)
+                    st.caption(f"SHA256 (Kurz): `{doc['sha256'][:16]}…`")
                 if doc.get("needs_ocr"):
                     st.error(
                         "Sehr wenig Text extrahiert – vermutlich gescanntes PDF. "
@@ -152,8 +217,17 @@ def main() -> None:
                 if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
                     try:
                         with st.spinner("KI-Analyse…"):
-                            run_llm_on_document(doc_id)
+                            out = run_llm_on_document(
+                                doc_id,
+                                auto_matter=bool(st.session_state.get("auto_matter_after_llm", True)),
+                            )
                         st.success("Analyse gespeichert.")
+                        am = out.get("_auto_matter") if isinstance(out, dict) else None
+                        if am:
+                            st.info(
+                                f"Automatischer Vorgang **#{am['matter_id']}** — {am['title']} "
+                                f"({am['linked_count']} Dokument(e) mit dieser Kennung)."
+                            )
                         st.rerun()
                     except Exception as e:
                         st.error(str(e))
