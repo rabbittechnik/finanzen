@@ -36,6 +36,7 @@ from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
 from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
+from pwa_inject import inject_pwa_tags
 from ui_theme import inject_neon_styles
 
 load_dotenv()
@@ -364,6 +365,7 @@ def main() -> None:
         layout="wide",
         page_icon="📄",
     )
+    inject_pwa_tags()
     inject_neon_styles()
     init_db()
     _drain_pending_llm_job()
@@ -385,6 +387,10 @@ def main() -> None:
             label_visibility="collapsed",
         )
         st.session_state.current_nav = picked
+        st.caption(
+            "**App:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste (oder Menü "
+            "„App installieren“) — wie beim Werkstatt-Programm, eigenes Fenster ohne Browser-Tabs."
+        )
         st.caption(
             "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
             "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner)."

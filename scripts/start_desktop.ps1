@@ -8,9 +8,9 @@
   Vorbereitung im Projektroot: python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt
   Desktop-Verknüpfung: scripts\create_desktop_shortcut.ps1 einmal ausführen.
 
-  Vergleich Werkstatt (anderes Repo, z. B. C:\Users\Bianc\Documents\rabbit technik reperatur):
-  dort ist die „App“ eine installierbare PWA (manifest display=standalone). Hier: Streamlit
-  lokal + Browser --app= für ein ähnliches Fenster ohne normale Browser-Leiste.
+  Deploy (Railway) nutzt uvicorn + PWA (manifest + Service Worker) wie installierbare Web-App.
+  Lokal: bevorzugt uvicorn asgi:app (gleiche PWA-Routen); sonst streamlit run.
+  Zusätzlich: Browser --app= für ein kompaktes Fenster ohne Tab-Leiste.
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -28,15 +28,14 @@ if (Test-Path -LiteralPath $activate) {
     Write-Warning 'Kein .venv gefunden — es wird Streamlit aus dem PATH verwendet. Empfohlen: venv anlegen und pip install -r requirements.txt'
 }
 
-$st = Get-Command streamlit -ErrorAction SilentlyContinue
-if (-not $st) {
-    $stExe = Join-Path $ProjectRoot '.venv\Scripts\streamlit.exe'
-    if (Test-Path -LiteralPath $stExe) {
-        $env:PATH = (Join-Path $ProjectRoot '.venv\Scripts') + ';' + $env:PATH
-    }
+$venvBin = Join-Path $ProjectRoot '.venv\Scripts'
+if (Test-Path -LiteralPath $venvBin) {
+    $env:PATH = $venvBin + ';' + $env:PATH
 }
-if (-not (Get-Command streamlit -ErrorAction SilentlyContinue)) {
-    Write-Error 'streamlit wurde nicht gefunden. Bitte virtuelle Umgebung anlegen und Abhängigkeiten installieren.'
+$uvicorn = Get-Command uvicorn -ErrorAction SilentlyContinue
+$streamlit = Get-Command streamlit -ErrorAction SilentlyContinue
+if (-not $uvicorn -and -not $streamlit) {
+    Write-Error 'uvicorn/streamlit nicht gefunden. Bitte .venv anlegen und pip install -r requirements.txt'
     exit 1
 }
 
@@ -67,11 +66,17 @@ $openApp = {
 $job = Start-Job -ScriptBlock $openApp -ArgumentList $baseUrl
 
 try {
-    & streamlit run app.py `
-        --server.headless true `
-        --browser.gatherUsageStats false `
-        --server.address 127.0.0.1 `
-        --server.port $port
+    if ($uvicorn) {
+        $env:STREAMLIT_SERVER_HEADLESS = 'true'
+        $env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = 'false'
+        & uvicorn asgi:app --host 127.0.0.1 --port $port --lifespan on
+    } else {
+        & streamlit run app.py `
+            --server.headless true `
+            --browser.gatherUsageStats false `
+            --server.address 127.0.0.1 `
+            --server.port $port
+    }
 } finally {
     Stop-Job -Job $job -ErrorAction SilentlyContinue
     Remove-Job -Job $job -ErrorAction SilentlyContinue
