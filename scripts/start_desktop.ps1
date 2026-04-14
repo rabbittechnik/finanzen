@@ -7,6 +7,10 @@
 .NOTES
   Vorbereitung im Projektroot: python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt
   Desktop-Verknüpfung: scripts\create_desktop_shortcut.ps1 einmal ausführen.
+
+  Vergleich Werkstatt (anderes Repo, z. B. C:\Users\Bianc\Documents\rabbit technik reperatur):
+  dort ist die „App“ eine installierbare PWA (manifest display=standalone). Hier: Streamlit
+  lokal + Browser --app= für ein ähnliches Fenster ohne normale Browser-Leiste.
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
