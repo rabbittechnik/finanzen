@@ -3,6 +3,9 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+# Avatar für den Assistenten „Lumo“ (PNG). Datei `static/lumo.png` im Projekt ablegen oder DOCU_LUMO_AVATAR setzen.
+LUMO_AVATAR_PATH = Path(os.environ.get("DOCU_LUMO_AVATAR", str(STATIC_DIR / "lumo.png")))
 
 
 def _default_data_dir() -> Path:

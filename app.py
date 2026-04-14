@@ -12,7 +12,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
+from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT, LUMO_AVATAR_PATH
 from download_button import render_document_download
 from email_draft_llm import EMAIL_SCENARIO_CHOICES, run_email_draft
 from email_smtp import send_email_smtp, smtp_configured
@@ -131,6 +131,34 @@ ROLE_DE = {
 
 def _fmt_de_eur(v: float) -> str:
     return f"{v:.2f} €".replace(".", ",")
+
+
+def _lumo_avatar_for_chat() -> str:
+    """Pfad zum Lumo-Bild für st.chat_message(avatar=…), sonst Fallback."""
+    try:
+        p = LUMO_AVATAR_PATH.resolve()
+        if p.is_file():
+            return str(p)
+    except OSError:
+        pass
+    return "✨"
+
+
+def _render_sidebar_lumo_brand() -> None:
+    """Kopfzeile Sidebar wie Mockup: Lumo-Avatar + Finanz-Assistent."""
+    c_img, c_txt = st.columns([0.9, 2.2])
+    with c_img:
+        if LUMO_AVATAR_PATH.is_file():
+            st.image(str(LUMO_AVATAR_PATH.resolve()), width=72)
+        else:
+            st.markdown("### ✨")
+    with c_txt:
+        st.markdown(
+            '<p class="docu-lumo-title">Finanz-Assistent</p>'
+            '<p class="docu-lumo-sub">Wie kann ich dir heute helfen?</p>',
+            unsafe_allow_html=True,
+        )
+    st.divider()
 
 
 def _enqueue_payment_prompt(doc_id: int) -> None:
@@ -692,12 +720,18 @@ def _drain_pending_llm_job() -> None:
 
 
 def _render_assistant_chat() -> None:
+    lumo_av = _lumo_avatar_for_chat()
     if not os.environ.get("OPENAI_API_KEY"):
         st.markdown(
-            '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0;">'
-            "KI-Assistent</p></div>",
+            '<div class="neon-chat-panel"><div class="docu-chat-lumo-brand">'
+            '<span class="sidebar-brand" style="font-size:0.95rem;margin:0;">Lumo</span>'
+            '<span class="docu-chat-lumo-dot"></span></div>'
+            '<p class="sidebar-muted" style="margin:0.35rem 0 0 0;font-size:0.82rem;">'
+            "Assistent — Chat benötigt `OPENAI_API_KEY`.</p></div>",
             unsafe_allow_html=True,
         )
+        if LUMO_AVATAR_PATH.is_file():
+            st.image(str(LUMO_AVATAR_PATH.resolve()), width=64)
         st.caption("Chat benötigt `OPENAI_API_KEY`.")
         return
     _ensure_chat_messages()
@@ -707,10 +741,14 @@ def _render_assistant_chat() -> None:
         panel = st.container()
     with panel:
         st.markdown(
-            '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.35rem 0;">'
-            "KI-Assistent</p>"
-            '<p class="sidebar-muted" style="margin:0 0 0.5rem 0;font-size:0.82rem;">'
-            "Natürliche Sprache → Suche & Filter; optional Anzeige auf PC/Tablet/TV — Dokument-KI schreibt beim Analysieren mit.</p></div>",
+            '<div class="neon-chat-panel">'
+            '<div class="docu-chat-lumo-brand">'
+            '<span class="sidebar-brand" style="font-size:0.95rem;margin:0;">Lumo</span>'
+            '<span class="docu-chat-lumo-dot" title="Bereit"></span>'
+            "</div>"
+            '<p class="sidebar-muted" style="margin:0.35rem 0 0.5rem 0;font-size:0.82rem;">'
+            "KI-Chat — sprich mich mit <strong>Lumo</strong> an. Suche, Filter, Dokumente und Finanzen.</p>"
+            "</div>",
             unsafe_allow_html=True,
         )
         if st.session_state.get("docu_pending_device_hint"):
@@ -723,15 +761,20 @@ def _render_assistant_chat() -> None:
             for m in st.session_state.ai_chat_messages:
                 if m.get("role") == "system":
                     continue
-                with st.chat_message(m["role"]):
-                    st.markdown(m.get("content") or "")
+                role = m.get("role") or "assistant"
+                if role == "assistant":
+                    with st.chat_message("assistant", avatar=lumo_av):
+                        st.markdown(m.get("content") or "")
+                else:
+                    with st.chat_message(role):
+                        st.markdown(m.get("content") or "")
         clear_chat = st.button(
             "Chat leeren",
             key="organizer_chat_clear",
             help="Alle Nachrichten löschen (Verlauf im Panel)",
             use_container_width=True,
         )
-        prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
+        prompt = st.chat_input("Schreibe eine Nachricht …", key="organizer_chat_input")
         if clear_chat:
             st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             st.rerun()
@@ -742,7 +785,7 @@ def _render_assistant_chat() -> None:
                 st.session_state.ai_chat_messages, keep_non_system=28
             )
             try:
-                with st.spinner("KI antwortet…"):
+                with st.spinner("Lumo antwortet …"):
                     chat_effects: list[dict[str, Any]] = []
                     reply = run_organizer_chat(
                         st.session_state.ai_chat_messages,
@@ -760,7 +803,7 @@ def _render_assistant_chat() -> None:
 def main() -> None:
     _configure_json_logging()
     st.set_page_config(
-        page_title="Dokumenten-Organizer",
+        page_title="Finanzen — Dokumenten-Organizer",
         layout="wide",
         page_icon="📄",
     )
@@ -780,6 +823,7 @@ def main() -> None:
     maybe_show_home_overlay()
 
     with st.sidebar:
+        _render_sidebar_lumo_brand()
         st.markdown('<p class="sidebar-brand">Navigation</p>', unsafe_allow_html=True)
         nav_options = list(NAV_KEYS_ORDER)
         nav_display = [NAV_LABELS[k] for k in nav_options]
@@ -968,11 +1012,19 @@ def main() -> None:
             )
         _render_main_quick_bar()
         if not show_chat_panel:
-            st.caption("KI-Panel ist aus — **KI-Panel** oben aktivieren, um den Chat wieder anzuzeigen.")
+            st.caption("KI-Panel ist aus — **KI-Panel** oben aktivieren, um Lumo wieder anzuzeigen.")
 
         nav_now = st.session_state.get("current_nav", "home")
-        if nav_now != "home":
-            st.title("Dokumenten-Organizer")
+        if nav_now == "home":
+            st.markdown(
+                '<p class="docu-page-hero-title">Finanzen — Dokumenten-Organizer</p>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<p class="docu-page-hero-title">Dokumenten-Organizer</p>',
+                unsafe_allow_html=True,
+            )
         _render_payment_status_queue()
         _render_monthly_expense_queue()
         _render_owner_assignment_queue()

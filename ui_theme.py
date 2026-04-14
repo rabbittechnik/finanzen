@@ -323,6 +323,58 @@ def inject_neon_styles() -> None:
   @media (max-width: 900px) {
     .dash-tile-inner { min-height: auto; }
   }
+
+  /* Lumo / App-Kopf (Mockup: Finanz-Assistent) */
+  .docu-page-hero-title {
+    font-size: 1.35rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    color: #e2e8f0 !important;
+    margin: 0.15rem 0 0.85rem 0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+    background: none !important;
+  }
+  .docu-sidebar-lumo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.35rem 0 0.85rem 0;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.22);
+  }
+  .docu-sidebar-lumo-wrap img,
+  .docu-sidebar-lumo-wrap [data-testid="stImage"] img {
+    border-radius: 50% !important;
+    border: 2px solid rgba(45, 212, 191, 0.45) !important;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  }
+  .docu-lumo-title {
+    font-size: 1.02rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin: 0;
+    line-height: 1.25;
+  }
+  .docu-lumo-sub {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    margin: 0.2rem 0 0 0;
+    line-height: 1.35;
+  }
+  .docu-chat-lumo-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .docu-chat-lumo-dot {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #2dd4bf;
+    box-shadow: 0 0 8px rgba(45, 212, 191, 0.7);
+  }
 </style>
         """,
         unsafe_allow_html=True,
