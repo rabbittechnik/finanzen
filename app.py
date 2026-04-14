@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from typing import Any
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ from nav_logic import NAV_KEYS_ORDER, NAV_LABELS, _norm_kind
 from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
+from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from ui_theme import inject_neon_styles
 
 load_dotenv()
@@ -177,34 +179,74 @@ def _render_monthly_expense_queue() -> None:
 
 def _render_home_dashboard() -> None:
     stats = compute_home_stats(list_documents())
+    intro_html = """<p style="color:#94a3b8;font-size:0.95rem;margin:0 0 0.75rem 0;">
+Überblick aus KI-Extraktion und Kennungen - Schuldensumme zählt offene Forderungen
+<strong style="color:#a5f3fc;">pro Aktenzeichen/Kundennummer nur einmal</strong>
+(verknüpfte Mahnung + Rechnung nicht doppelt).</p>"""
+    st.markdown(intro_html, unsafe_allow_html=True)
+    kpi_html = f"""<div class="neon-kpi-row">
+<div class="neon-kpi">
+<div class="neon-kpi-label">Einnahmen (Lohn)</div>
+<div class="neon-kpi-value">{_fmt_de_eur(stats.income_month_eur)}</div>
+<div class="neon-kpi-sub">Nach Lohnabrechnung - <strong>{stats.month_label}</strong>
+(Netto laut KI-Feld <code>payslip_net_income_eur</code>)</div></div>
+<div class="neon-kpi magenta">
+<div class="neon-kpi-label">Schuldensumme (offen)</div>
+<div class="neon-kpi-value">{_fmt_de_eur(stats.debt_open_eur)}</div>
+<div class="neon-kpi-sub">Zahlungsaufforderungen &amp; Mahnungen -
+<strong>{stats.debt_groups}</strong> getrennte Kennung(en)</div></div>
+<div class="neon-kpi gold">
+<div class="neon-kpi-label">Ausgaben (Monat)</div>
+<div class="neon-kpi-value">{_fmt_de_eur(stats.expense_month_eur)}</div>
+<div class="neon-kpi-sub">Ohne Ihre Auswahl zählen passende Belege vorläufig mit;
+<strong>Nein</strong> schließt explizit aus. Kalendermonat <strong>{stats.month_label}</strong>
+(Datum laut Dokument).</div></div>
+</div>"""
+    st.markdown(kpi_html, unsafe_allow_html=True)
+
+
+def _trim_chat_messages(msgs: list[dict[str, Any]], *, keep_non_system: int = 24) -> list[dict[str, Any]]:
+    sys = [m for m in msgs if m.get("role") == "system"]
+    rest = [m for m in msgs if m.get("role") != "system"]
+    return sys + rest[-keep_non_system:]
+
+
+def _render_assistant_chat() -> None:
     st.markdown(
-        '<p style="color:#94a3b8;font-size:0.95rem;margin:0 0 0.75rem 0;">'
-        "Überblick aus KI-Extraktion und Kennungen — Schuldensumme zählt offene Forderungen "
-        "<strong style='color:#a5f3fc;">pro Aktenzeichen/Kundennummer nur einmal</strong> "
-        "(verknüpfte Mahnung + Rechnung nicht doppelt).</p>",
+        '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.5rem 0;">'
+        "KI-Assistent</p>"
+        "<p class=\"sidebar-muted\" style=\"margin:0 0 0.75rem 0;\">Fragen zur App, Belege finden, "
+        "Ablage per Tool ändern (nach KI-Analyse).</p></div>",
         unsafe_allow_html=True,
     )
-    st.markdown(
-        f'<div class="neon-kpi-row">'
-        f'<div class="neon-kpi">'
-        f'<div class="neon-kpi-label">Einnahmen (Lohn)</div>'
-        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.income_month_eur)}</div>'
-        f'<div class="neon-kpi-sub">Nach Lohnabrechnung · <strong>{stats.month_label}</strong> '
-        f"(Netto laut KI-Feld <code>payslip_net_income_eur</code>)</div></div>"
-        f'<div class="neon-kpi magenta">'
-        f'<div class="neon-kpi-label">Schuldensumme (offen)</div>'
-        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.debt_open_eur)}</div>'
-        f'<div class="neon-kpi-sub">Zahlungsaufforderungen &amp; Mahnungen · '
-        f"<strong>{stats.debt_groups}</strong> getrennte Kennung(en)</div></div>"
-        f'<div class="neon-kpi gold">'
-        f'<div class="neon-kpi-label">Ausgaben (Monat)</div>'
-        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.expense_month_eur)}</div>'
-        f'<div class="neon-kpi-sub">Ohne Ihre Auswahl zählen passende Belege vorläufig mit; '
-        f"<strong>Nein</strong> schließt explizit aus. Kalendermonat <strong>{stats.month_label}</strong> "
-        f"(Datum laut Dokument).</div></div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if not os.environ.get("OPENAI_API_KEY"):
+        st.caption("Chat benötigt `OPENAI_API_KEY`.")
+        return
+    if "ai_chat_messages" not in st.session_state:
+        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for m in st.session_state.ai_chat_messages:
+        if m.get("role") == "system":
+            continue
+        with st.chat_message(m["role"]):
+            st.markdown(m.get("content") or "")
+    prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
+    if prompt:
+        st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
+        st.session_state.ai_chat_messages = _trim_chat_messages(
+            st.session_state.ai_chat_messages, keep_non_system=28
+        )
+        try:
+            with st.spinner("KI antwortet…"):
+                reply = run_organizer_chat(st.session_state.ai_chat_messages)
+            st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
+        except Exception as e:
+            st.session_state.ai_chat_messages.append(
+                {"role": "assistant", "content": f"**Fehler:** {e}"}
+            )
+        st.rerun()
+    if st.button("Chat leeren", key="organizer_chat_clear"):
+        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        st.rerun()
 
 
 def main() -> None:
@@ -270,341 +312,347 @@ def main() -> None:
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
 
-    nav_now = st.session_state.get("current_nav", "home")
-    st.title("Dokumenten-Organizer")
-    _render_payment_status_queue()
-    _render_monthly_expense_queue()
-    if nav_now == "home":
-        _render_home_dashboard()
-    else:
-        st.markdown(
-            '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
-            "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
-            "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
-            "</p></div>",
-            unsafe_allow_html=True,
-        )
-
-    tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
-
-    with tab_inbox:
-        st.subheader("PDFs hochladen")
-        st.write("PDFs hier ablegen – optional gleich ins Archiv übernehmen (wie Posteingang).")
-        up = st.file_uploader(
-            "Dateien wählen",
-            type=["pdf"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-        )
-        auto_import = st.checkbox("Hochgeladene PDFs sofort einlesen", value=True)
-        if up:
-            if st.button("Upload starten", type="primary"):
-                for f in up:
-                    path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
-                    st.caption(f"Gespeichert: `{path.name}`")
-                    if auto_import:
-                        with st.spinner(f"Import: {path.name}…"):
-                            r = import_one_pdf(path)
+    main_c, chat_c = st.columns([2.15, 1], gap="medium")
+    with main_c:
+        nav_now = st.session_state.get("current_nav", "home")
+        st.title("Dokumenten-Organizer")
+        _render_payment_status_queue()
+        _render_monthly_expense_queue()
+        if nav_now == "home":
+            _render_home_dashboard()
+        else:
+            st.markdown(
+                '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
+                "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
+                "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
+                "</p></div>",
+                unsafe_allow_html=True,
+            )
+    
+        tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
+    
+        with tab_inbox:
+            st.subheader("PDFs hochladen")
+            st.write("PDFs hier ablegen – optional gleich ins Archiv übernehmen (wie Posteingang).")
+            up = st.file_uploader(
+                "Dateien wählen",
+                type=["pdf"],
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+            )
+            auto_import = st.checkbox("Hochgeladene PDFs sofort einlesen", value=True)
+            if up:
+                if st.button("Upload starten", type="primary"):
+                    for f in up:
+                        path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                        st.caption(f"Gespeichert: `{path.name}`")
+                        if auto_import:
+                            with st.spinner(f"Import: {path.name}…"):
+                                r = import_one_pdf(path)
+                            if r["status"] == "duplicate":
+                                st.warning(f'Duplikat: **{r["filename"]}**')
+                            elif r["status"] == "error":
+                                st.error(r.get("message", "Fehler"))
+                            else:
+                                ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
+                                st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
+                                _enqueue_payment_prompt(int(r["id"]))
+                    st.rerun()
+    
+            st.divider()
+            st.subheader("Posteingang vom Server")
+            st.write(
+                "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
+                "kannst du dort PDFs ablegen und mit **Jetzt einlesen** importieren. "
+                "Am einfachsten nutzt du den **Upload** oben."
+            )
+            if st.button("Jetzt einlesen", type="primary"):
+                with st.spinner("Import läuft…"):
+                    results = import_inbox_pdfs()
+                if not results:
+                    st.info("Keine PDFs im Posteingang.")
+                else:
+                    for r in results:
                         if r["status"] == "duplicate":
-                            st.warning(f'Duplikat: **{r["filename"]}**')
-                        elif r["status"] == "error":
-                            st.error(r.get("message", "Fehler"))
+                            st.warning(f'Duplikat übersprungen: **{r["filename"]}**')
                         else:
                             ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
                             st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
                             _enqueue_payment_prompt(int(r["id"]))
-                st.rerun()
-
-        st.divider()
-        st.subheader("Posteingang vom Server")
-        st.write(
-            "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
-            "kannst du dort PDFs ablegen und mit **Jetzt einlesen** importieren. "
-            "Am einfachsten nutzt du den **Upload** oben."
-        )
-        if st.button("Jetzt einlesen", type="primary"):
-            with st.spinner("Import läuft…"):
-                results = import_inbox_pdfs()
-            if not results:
-                st.info("Keine PDFs im Posteingang.")
+            st.divider()
+            pdfs = sorted(INBOX_DIR.glob("*.pdf")) if INBOX_DIR.exists() else []
+            st.write(f"Aktuell **{len(pdfs)}** PDF(s) im Posteingang.")
+    
+        with tab_docs:
+            nav_key = st.session_state.get("current_nav", "home")
+            st.subheader(NAV_LABELS.get(nav_key, "Dokumente"))
+            rows = list_documents_for_nav(nav_key if nav_key != "home" else None)
+            if not rows:
+                st.info("Noch keine Dokumente in diesem Bereich. Import im Tab Posteingang, dann KI-Analyse.")
             else:
-                for r in results:
-                    if r["status"] == "duplicate":
-                        st.warning(f'Duplikat übersprungen: **{r["filename"]}**')
-                    else:
-                        ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
-                        st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
-                        _enqueue_payment_prompt(int(r["id"]))
-        st.divider()
-        pdfs = sorted(INBOX_DIR.glob("*.pdf")) if INBOX_DIR.exists() else []
-        st.write(f"Aktuell **{len(pdfs)}** PDF(s) im Posteingang.")
-
-    with tab_docs:
-        nav_key = st.session_state.get("current_nav", "home")
-        st.subheader(NAV_LABELS.get(nav_key, "Dokumente"))
-        rows = list_documents_for_nav(nav_key if nav_key != "home" else None)
-        if not rows:
-            st.info("Noch keine Dokumente in diesem Bereich. Import im Tab Posteingang, dann KI-Analyse.")
-        else:
-            if nav_key == "stromanbieter":
-                by_sub: dict[str | None, list] = defaultdict(list)
-                for r in rows:
-                    by_sub[r.get("folder_sub")].append(r)
-                ordered = sorted(by_sub.keys(), key=lambda x: (x is None, (x or "")))
-                id_opts: dict[str, int] = {}
-                for sub in ordered:
-                    label = sub if sub else "Ohne Anbietername"
-                    st.markdown(f"**{label}**")
-                    for r in sorted(by_sub[sub], key=lambda x: -int(x["id"])):
-                        id_opts[f'#{r["id"]} — {r["original_filename"]}'] = r["id"]
-                choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
-            else:
-                id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
-                choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
-            doc_id = id_opts[choice]
-            doc = get_document(doc_id)
-            ext = get_extraction(doc_id)
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### Metadaten")
-                st.write(f"**Datei:** {doc['original_filename']}")
-                st.write(f"**Zeichen Text:** {doc['text_char_count']}")
-                with st.expander("Technische Details", expanded=False):
-                    st.code(doc["stored_path"] or "—", language=None)
-                    st.caption(f"SHA256 (Kurz): `{doc['sha256'][:16]}…`")
-                if doc.get("needs_ocr"):
-                    st.error(
-                        "Sehr wenig Text extrahiert – vermutlich gescanntes PDF. "
-                        "Optional später OCR (z. B. Tesseract) ergänzen."
-                    )
-                if ext:
-                    nf = ext.get("nav_folder")
-                    fs = ext.get("folder_sub")
-                    ablage = NAV_LABELS.get(nf, nf or "—")
-                    if fs:
-                        ablage = f"{ablage} → **{fs}**"
-                    st.markdown(f"**Ablage:** {ablage}")
-                    dk = ext.get("document_kind") or "—"
-                    st.write(f"**Dokumentart (KI):** {dk}")
-                    st.write(
-                        f"**Kategorie:** {CATEGORY_DE.get(ext['category'], ext['category'])}"
-                    )
-                    st.write(f"**Rolle Absender:** {ROLE_DE.get(ext['sender_role'], ext['sender_role'])}")
-                    st.write(f"**Absender:** {ext['sender_name'] or '—'}")
-                    st.write(f"**Betreff:** {ext['subject'] or '—'}")
-                    st.write(f"**Datum:** {ext['document_date'] or '—'}")
-                    st.write(f"**Kurzfassung:** {ext['summary_de'] or '—'}")
-                    partner_id = ext.get("linked_payment_doc_id")
-                    if partner_id:
-                        pdoc = get_document(int(partner_id))
-                        pname = pdoc["original_filename"] if pdoc else "?"
-                        kind = (ext.get("document_kind") or "").lower()
-                        if kind == "invoice":
-                            st.info(f"**Verknüpfte Mahnung:** #{int(partner_id)} — {pname}")
-                        elif kind == "reminder":
-                            st.info(f"**Verknüpfte Rechnung:** #{int(partner_id)} — {pname}")
-                        else:
-                            st.info(f"**Zahlstatus-Partner:** #{int(partner_id)} — {pname}")
-                    zs = ext.get("zahlstatus")
-                    if zs or partner_id:
-                        zlab = {"offen": "Offen", "bezahlt": "Bezahlt / erledigt"}.get(
-                            zs or "offen", zs or "—"
-                        )
-                        st.write(f"**Zahlstatus:** {zlab}")
-                    if is_expense_monthly_prompt_candidate(ext):
-                        im = ext.get("include_monthly_expense")
-                        imlab = (
-                            "Noch nicht gewählt (zählt vorläufig mit)"
-                            if im is None
-                            else ("Ja, in Monatsausgaben" if int(im) == 1 else "Nein, nicht in Monatsausgaben")
-                        )
-                        st.write(f"**Monatsausgaben:** {imlab}")
-                        mce = st.radio(
-                            "Zu den monatlichen Ausgaben zählen?",
-                            (1, 0),
-                            index=0 if im is None or int(im) == 1 else 1,
-                            format_func=lambda x: "Ja" if x == 1 else "Nein",
-                            horizontal=True,
-                            key=f"mce_edit_{doc_id}",
-                        )
-                        if st.button("Monatsausgaben speichern", key=f"mce_save_{doc_id}"):
-                            set_include_monthly_expense(doc_id, int(mce))
-                            st.success("Gespeichert.")
-                            st.rerun()
-                    try:
-                        amounts = json.loads(ext["amounts_json"] or "[]")
-                        if amounts:
-                            st.json(amounts)
-                    except json.JSONDecodeError:
-                        pass
-                    try:
-                        refs = json.loads(ext["reference_ids_json"] or "[]")
-                        if refs:
-                            st.markdown("**Referenzen / Kennungen:**")
-                            st.json(refs)
-                    except json.JSONDecodeError:
-                        pass
-
-            with c2:
-                st.markdown("#### Aktionen")
-                if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
-                    try:
-                        with st.spinner("KI-Analyse…"):
-                            out = run_llm_on_document(
-                                doc_id,
-                                auto_matter=bool(st.session_state.get("auto_matter_after_llm", True)),
-                            )
-                        st.success("Analyse gespeichert.")
-                        am = out.get("_auto_matter") if isinstance(out, dict) else None
-                        if am:
-                            st.info(
-                                f"Automatischer Vorgang **#{am['matter_id']}** — {am['title']} "
-                                f"({am['linked_count']} Dokument(e) mit dieser Kennung)."
-                            )
-                        ext2 = get_extraction(doc_id)
-                        if ext2:
-                            nk = _norm_kind(ext2.get("document_kind"))
-                            navf = ext2.get("nav_folder") or ""
-                            if (nk in ("invoice", "reminder", "payment_demand") or navf == "mahnungen") and not (
-                                ext2.get("zahlstatus") or ""
-                            ).strip():
-                                doc2 = get_document(doc_id)
-                                if doc2 and not (doc2.get("initial_zahlstatus") or "").strip():
-                                    _enqueue_payment_prompt(doc_id)
-                            if is_expense_monthly_prompt_candidate(ext2) and ext2.get(
-                                "include_monthly_expense"
-                            ) is None:
-                                _enqueue_monthly_expense_prompt(doc_id)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-
-                matters = list_matters()
-                current = matter_ids_for_document(doc_id)
-                st.markdown("**Vorgang zuordnen**")
-                if matters:
-                    m_labels = {f"#{m['id']} — {m['title']}": m["id"] for m in matters}
-                    pick = st.selectbox("Vorgang", list(m_labels.keys()), key=f"mp_{doc_id}")
-                    mid = m_labels[pick]
-                    if st.button("Zu Vorgang hinzufügen", key=f"link_{doc_id}"):
-                        link_document_to_matter(doc_id, mid)
-                        st.success("Verknüpft.")
-                        st.rerun()
-                    if mid in current:
-                        if st.button("Aus diesem Vorgang entfernen", key=f"unlink_{doc_id}_{mid}"):
-                            unlink_document_from_matter(doc_id, mid)
-                            st.rerun()
+                if nav_key == "stromanbieter":
+                    by_sub: dict[str | None, list] = defaultdict(list)
+                    for r in rows:
+                        by_sub[r.get("folder_sub")].append(r)
+                    ordered = sorted(by_sub.keys(), key=lambda x: (x is None, (x or "")))
+                    id_opts: dict[str, int] = {}
+                    for sub in ordered:
+                        label = sub if sub else "Ohne Anbietername"
+                        st.markdown(f"**{label}**")
+                        for r in sorted(by_sub[sub], key=lambda x: -int(x["id"])):
+                            id_opts[f'#{r["id"]} — {r["original_filename"]}'] = r["id"]
+                    choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
                 else:
-                    st.caption("Legen Sie zuerst einen Vorgang im Tab „Vorgänge“ an.")
-
-                show_pay_ui = ext and (
-                    ext.get("document_kind") in ("invoice", "reminder", "payment_demand")
-                    or ext.get("nav_folder") in ("rechnungen", "mahnungen")
-                )
-                if show_pay_ui:
-                    st.markdown("#### Rechnung ↔ Mahnung (Zahlstatus)")
-                    if ext.get("linked_payment_doc_id"):
-                        status_val = ext.get("zahlstatus") or "offen"
-                        opts = ["offen", "bezahlt"]
-                        labels = {"offen": "Offen", "bezahlt": "Bezahlt (Rechnung) / Erledigt (Mahnung)"}
-                        idx = opts.index(status_val) if status_val in opts else 0
-                        new_status = st.radio(
-                            "Gemeinsamer Zahlstatus",
-                            opts,
-                            index=idx,
-                            format_func=lambda x: labels[x],
-                            key=f"paystat_{doc_id}",
-                            horizontal=True,
+                    id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
+                    choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
+                doc_id = id_opts[choice]
+                doc = get_document(doc_id)
+                ext = get_extraction(doc_id)
+    
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("#### Metadaten")
+                    st.write(f"**Datei:** {doc['original_filename']}")
+                    st.write(f"**Zeichen Text:** {doc['text_char_count']}")
+                    with st.expander("Technische Details", expanded=False):
+                        st.code(doc["stored_path"] or "—", language=None)
+                        st.caption(f"SHA256 (Kurz): `{doc['sha256'][:16]}…`")
+                    if doc.get("needs_ocr"):
+                        st.error(
+                            "Sehr wenig Text extrahiert – vermutlich gescanntes PDF. "
+                            "Optional später OCR (z. B. Tesseract) ergänzen."
                         )
-                        if st.button("Zahlstatus speichern", key=f"save_pay_{doc_id}"):
-                            if new_status != status_val:
-                                set_zahlstatus_linked(doc_id, new_status)
+                    if ext:
+                        nf = ext.get("nav_folder")
+                        fs = ext.get("folder_sub")
+                        ablage = NAV_LABELS.get(nf, nf or "—")
+                        if fs:
+                            ablage = f"{ablage} → **{fs}**"
+                        st.markdown(f"**Ablage:** {ablage}")
+                        dk = ext.get("document_kind") or "—"
+                        st.write(f"**Dokumentart (KI):** {dk}")
+                        st.write(
+                            f"**Kategorie:** {CATEGORY_DE.get(ext['category'], ext['category'])}"
+                        )
+                        st.write(f"**Rolle Absender:** {ROLE_DE.get(ext['sender_role'], ext['sender_role'])}")
+                        st.write(f"**Absender:** {ext['sender_name'] or '—'}")
+                        st.write(f"**Betreff:** {ext['subject'] or '—'}")
+                        st.write(f"**Datum:** {ext['document_date'] or '—'}")
+                        st.write(f"**Kurzfassung:** {ext['summary_de'] or '—'}")
+                        partner_id = ext.get("linked_payment_doc_id")
+                        if partner_id:
+                            pdoc = get_document(int(partner_id))
+                            pname = pdoc["original_filename"] if pdoc else "?"
+                            kind = (ext.get("document_kind") or "").lower()
+                            if kind == "invoice":
+                                st.info(f"**Verknüpfte Mahnung:** #{int(partner_id)} — {pname}")
+                            elif kind == "reminder":
+                                st.info(f"**Verknüpfte Rechnung:** #{int(partner_id)} — {pname}")
+                            else:
+                                st.info(f"**Zahlstatus-Partner:** #{int(partner_id)} — {pname}")
+                        zs = ext.get("zahlstatus")
+                        if zs or partner_id:
+                            zlab = {"offen": "Offen", "bezahlt": "Bezahlt / erledigt"}.get(
+                                zs or "offen", zs or "—"
+                            )
+                            st.write(f"**Zahlstatus:** {zlab}")
+                        if is_expense_monthly_prompt_candidate(ext):
+                            im = ext.get("include_monthly_expense")
+                            imlab = (
+                                "Noch nicht gewählt (zählt vorläufig mit)"
+                                if im is None
+                                else ("Ja, in Monatsausgaben" if int(im) == 1 else "Nein, nicht in Monatsausgaben")
+                            )
+                            st.write(f"**Monatsausgaben:** {imlab}")
+                            mce = st.radio(
+                                "Zu den monatlichen Ausgaben zählen?",
+                                (1, 0),
+                                index=0 if im is None or int(im) == 1 else 1,
+                                format_func=lambda x: "Ja" if x == 1 else "Nein",
+                                horizontal=True,
+                                key=f"mce_edit_{doc_id}",
+                            )
+                            if st.button("Monatsausgaben speichern", key=f"mce_save_{doc_id}"):
+                                set_include_monthly_expense(doc_id, int(mce))
                                 st.success("Gespeichert.")
                                 st.rerun()
-                        if st.button("Verknüpfung aufheben", key=f"unlink_pay_{doc_id}"):
-                            clear_payment_link(doc_id)
-                            st.rerun()
-                    else:
-                        all_docs = list_documents()
-                        others = [
-                            r
-                            for r in all_docs
-                            if int(r["id"]) != doc_id
-                            and r.get("document_kind")
-                            in ("invoice", "reminder", "payment_demand")
-                        ]
-                        if others:
-                            labels_map = {
-                                f'#{r["id"]} — {r["original_filename"]} ({r.get("document_kind")})': int(
-                                    r["id"]
+                        try:
+                            amounts = json.loads(ext["amounts_json"] or "[]")
+                            if amounts:
+                                st.json(amounts)
+                        except json.JSONDecodeError:
+                            pass
+                        try:
+                            refs = json.loads(ext["reference_ids_json"] or "[]")
+                            if refs:
+                                st.markdown("**Referenzen / Kennungen:**")
+                                st.json(refs)
+                        except json.JSONDecodeError:
+                            pass
+    
+                with c2:
+                    st.markdown("#### Aktionen")
+                    if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
+                        try:
+                            with st.spinner("KI-Analyse…"):
+                                out = run_llm_on_document(
+                                    doc_id,
+                                    auto_matter=bool(st.session_state.get("auto_matter_after_llm", True)),
                                 )
-                                for r in others
-                            }
-                            pick = st.selectbox("Partner-Dokument", list(labels_map.keys()), key=f"ppick_{doc_id}")
-                            if st.button("Verknüpfen (gemeinsamer Zahlstatus)", key=f"plink_{doc_id}"):
-                                set_payment_link_pair(doc_id, labels_map[pick])
-                                st.success("Verknüpft — Zahlstatus zunächst **Offen**.")
+                            st.success("Analyse gespeichert.")
+                            am = out.get("_auto_matter") if isinstance(out, dict) else None
+                            if am:
+                                st.info(
+                                    f"Automatischer Vorgang **#{am['matter_id']}** — {am['title']} "
+                                    f"({am['linked_count']} Dokument(e) mit dieser Kennung)."
+                                )
+                            ext2 = get_extraction(doc_id)
+                            if ext2:
+                                nk = _norm_kind(ext2.get("document_kind"))
+                                navf = ext2.get("nav_folder") or ""
+                                if (nk in ("invoice", "reminder", "payment_demand") or navf == "mahnungen") and not (
+                                    ext2.get("zahlstatus") or ""
+                                ).strip():
+                                    doc2 = get_document(doc_id)
+                                    if doc2 and not (doc2.get("initial_zahlstatus") or "").strip():
+                                        _enqueue_payment_prompt(doc_id)
+                                if is_expense_monthly_prompt_candidate(ext2) and ext2.get(
+                                    "include_monthly_expense"
+                                ) is None:
+                                    _enqueue_monthly_expense_prompt(doc_id)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+    
+                    matters = list_matters()
+                    current = matter_ids_for_document(doc_id)
+                    st.markdown("**Vorgang zuordnen**")
+                    if matters:
+                        m_labels = {f"#{m['id']} — {m['title']}": m["id"] for m in matters}
+                        pick = st.selectbox("Vorgang", list(m_labels.keys()), key=f"mp_{doc_id}")
+                        mid = m_labels[pick]
+                        if st.button("Zu Vorgang hinzufügen", key=f"link_{doc_id}"):
+                            link_document_to_matter(doc_id, mid)
+                            st.success("Verknüpft.")
+                            st.rerun()
+                        if mid in current:
+                            if st.button("Aus diesem Vorgang entfernen", key=f"unlink_{doc_id}_{mid}"):
+                                unlink_document_from_matter(doc_id, mid)
+                                st.rerun()
+                    else:
+                        st.caption("Legen Sie zuerst einen Vorgang im Tab „Vorgänge“ an.")
+    
+                    show_pay_ui = ext and (
+                        ext.get("document_kind") in ("invoice", "reminder", "payment_demand")
+                        or ext.get("nav_folder") in ("rechnungen", "mahnungen")
+                    )
+                    if show_pay_ui:
+                        st.markdown("#### Rechnung ↔ Mahnung (Zahlstatus)")
+                        if ext.get("linked_payment_doc_id"):
+                            status_val = ext.get("zahlstatus") or "offen"
+                            opts = ["offen", "bezahlt"]
+                            labels = {"offen": "Offen", "bezahlt": "Bezahlt (Rechnung) / Erledigt (Mahnung)"}
+                            idx = opts.index(status_val) if status_val in opts else 0
+                            new_status = st.radio(
+                                "Gemeinsamer Zahlstatus",
+                                opts,
+                                index=idx,
+                                format_func=lambda x: labels[x],
+                                key=f"paystat_{doc_id}",
+                                horizontal=True,
+                            )
+                            if st.button("Zahlstatus speichern", key=f"save_pay_{doc_id}"):
+                                if new_status != status_val:
+                                    set_zahlstatus_linked(doc_id, new_status)
+                                    st.success("Gespeichert.")
+                                    st.rerun()
+                            if st.button("Verknüpfung aufheben", key=f"unlink_pay_{doc_id}"):
+                                clear_payment_link(doc_id)
                                 st.rerun()
                         else:
-                            st.caption("Kein weiteres Dokument mit Art Rechnung/Mahnung vorhanden.")
-
-                st.markdown("#### Mögliche zusammenhängende Dokumente")
-                related = find_documents_sharing_keys(doc_id)
-                if not related:
-                    st.caption(
-                        "Keine Treffer über gleiche Kennung (nach KI-Analyse Referenzen extrahieren)."
-                    )
-                else:
-                    seen: set[int] = set()
-                    for r in related:
-                        oid = r["id"]
-                        if oid in seen:
-                            continue
-                        seen.add(oid)
-                        st.write(
-                            f"— **#{oid}** {r['original_filename']} · Kennung `{r['key_value']}` "
-                            f"({r['id_type']}) · {CATEGORY_DE.get(r.get('category') or '', r.get('category') or '')} "
-                            f"/ {ROLE_DE.get(r.get('sender_role') or '', r.get('sender_role') or '')}"
+                            all_docs = list_documents()
+                            others = [
+                                r
+                                for r in all_docs
+                                if int(r["id"]) != doc_id
+                                and r.get("document_kind")
+                                in ("invoice", "reminder", "payment_demand")
+                            ]
+                            if others:
+                                labels_map = {
+                                    f'#{r["id"]} — {r["original_filename"]} ({r.get("document_kind")})': int(
+                                        r["id"]
+                                    )
+                                    for r in others
+                                }
+                                pick = st.selectbox("Partner-Dokument", list(labels_map.keys()), key=f"ppick_{doc_id}")
+                                if st.button("Verknüpfen (gemeinsamer Zahlstatus)", key=f"plink_{doc_id}"):
+                                    set_payment_link_pair(doc_id, labels_map[pick])
+                                    st.success("Verknüpft — Zahlstatus zunächst **Offen**.")
+                                    st.rerun()
+                            else:
+                                st.caption("Kein weiteres Dokument mit Art Rechnung/Mahnung vorhanden.")
+    
+                    st.markdown("#### Mögliche zusammenhängende Dokumente")
+                    related = find_documents_sharing_keys(doc_id)
+                    if not related:
+                        st.caption(
+                            "Keine Treffer über gleiche Kennung (nach KI-Analyse Referenzen extrahieren)."
                         )
-
-            with st.expander("Rohtext (lokal)"):
-                st.text_area(
-                    "extracted_text",
-                    value=doc["extracted_text"] or "",
-                    height=320,
-                    disabled=True,
-                    label_visibility="collapsed",
-                )
-
-    with tab_matters:
-        st.subheader("Vorgänge (Themen / Fälle)")
-        st.write(
-            "Mehrere Dokumente (z. B. Rechnung Versorger + Schreiben Anwalt) können **einem Vorgang** "
-            "zugeordnet werden. Kategorie und Rolle bleiben je Dokument gespeichert."
-        )
-        title = st.text_input("Neuer Vorgang – Titel", placeholder="z. B. Strom Kunde 12345")
-        if st.button("Vorgang anlegen"):
-            if title.strip():
-                mid = create_matter(title.strip())
-                st.success(f"Vorgang #{mid} angelegt.")
-                st.rerun()
-            else:
-                st.warning("Bitte Titel eingeben.")
-
-        st.divider()
-        for m in list_matters():
-            with st.expander(f"#{m['id']} — {m['title']} ({m['doc_count']} Dok.)"):
-                for d in documents_for_matter(m["id"]):
-                    st.write(
-                        f"**#{d['id']}** {d['original_filename']} — "
-                        f"{CATEGORY_DE.get(d.get('category') or '', d.get('category') or '—')} · "
-                        f"{ROLE_DE.get(d.get('sender_role') or '', d.get('sender_role') or '—')}"
+                    else:
+                        seen: set[int] = set()
+                        for r in related:
+                            oid = r["id"]
+                            if oid in seen:
+                                continue
+                            seen.add(oid)
+                            st.write(
+                                f"— **#{oid}** {r['original_filename']} · Kennung `{r['key_value']}` "
+                                f"({r['id_type']}) · {CATEGORY_DE.get(r.get('category') or '', r.get('category') or '')} "
+                                f"/ {ROLE_DE.get(r.get('sender_role') or '', r.get('sender_role') or '')}"
+                            )
+    
+                with st.expander("Rohtext (lokal)"):
+                    st.text_area(
+                        "extracted_text",
+                        value=doc["extracted_text"] or "",
+                        height=320,
+                        disabled=True,
+                        label_visibility="collapsed",
                     )
-                    if st.button("Entknüpfen", key=f"um_{m['id']}_{d['id']}"):
-                        unlink_document_from_matter(int(d["id"]), int(m["id"]))
-                        st.rerun()
+    
+        with tab_matters:
+            st.subheader("Vorgänge (Themen / Fälle)")
+            st.write(
+                "Mehrere Dokumente (z. B. Rechnung Versorger + Schreiben Anwalt) können **einem Vorgang** "
+                "zugeordnet werden. Kategorie und Rolle bleiben je Dokument gespeichert."
+            )
+            title = st.text_input("Neuer Vorgang – Titel", placeholder="z. B. Strom Kunde 12345")
+            if st.button("Vorgang anlegen"):
+                if title.strip():
+                    mid = create_matter(title.strip())
+                    st.success(f"Vorgang #{mid} angelegt.")
+                    st.rerun()
+                else:
+                    st.warning("Bitte Titel eingeben.")
+    
+            st.divider()
+            for m in list_matters():
+                with st.expander(f"#{m['id']} — {m['title']} ({m['doc_count']} Dok.)"):
+                    for d in documents_for_matter(m["id"]):
+                        st.write(
+                            f"**#{d['id']}** {d['original_filename']} — "
+                            f"{CATEGORY_DE.get(d.get('category') or '', d.get('category') or '—')} · "
+                            f"{ROLE_DE.get(d.get('sender_role') or '', d.get('sender_role') or '—')}"
+                        )
+                        if st.button("Entknüpfen", key=f"um_{m['id']}_{d['id']}"):
+                            unlink_document_from_matter(int(d["id"]), int(m["id"]))
+                            st.rerun()
+    
+    
 
+    with chat_c:
+        _render_assistant_chat()
 
 if __name__ == "__main__":
     main()

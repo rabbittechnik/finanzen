@@ -193,6 +193,14 @@ def inject_neon_styles() -> None:
     margin-top: 0.4rem;
     line-height: 1.35;
   }
+
+  .neon-chat-panel {
+    border: 1px solid rgba(0, 245, 212, 0.2);
+    border-radius: 14px;
+    padding: 0.75rem 0.9rem;
+    background: rgba(12, 18, 30, 0.75);
+    margin-bottom: 0.75rem;
+  }
 </style>
         """,
         unsafe_allow_html=True,

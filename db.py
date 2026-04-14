@@ -171,6 +171,21 @@ def clear_document_initial_zahlstatus(document_id: int) -> None:
         )
 
 
+def update_extraction_nav_folder(
+    document_id: int,
+    *,
+    nav_folder: str | None,
+    folder_sub: str | None = None,
+) -> bool:
+    """Manuelle Ablage (z. B. KI-Chat): nav_folder und optional folder_sub (Stromanbieter)."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE extractions SET nav_folder = ?, folder_sub = ? WHERE document_id = ?",
+            (nav_folder, folder_sub, document_id),
+        )
+        return cur.rowcount > 0
+
+
 def set_include_monthly_expense(document_id: int, value: int) -> None:
     """1 = zu Monatsausgaben zählen, 0 = nicht zählen."""
     if value not in (0, 1):
