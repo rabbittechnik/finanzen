@@ -392,19 +392,13 @@ def _render_assistant_chat() -> None:
                     continue
                 with st.chat_message(m["role"]):
                     st.markdown(m.get("content") or "")
-        try:
-            inp_col, clr_col = st.columns((5, 1), gap="small", vertical_alignment="bottom")
-        except TypeError:
-            inp_col, clr_col = st.columns((5, 1), gap="small")
-        with inp_col:
-            prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
-        with clr_col:
-            clear_chat = st.button(
-                "Leeren",
-                key="organizer_chat_clear",
-                help="Chat zurücksetzen",
-                use_container_width=True,
-            )
+        clear_chat = st.button(
+            "Chat leeren",
+            key="organizer_chat_clear",
+            help="Alle Nachrichten löschen (Verlauf im Panel)",
+            use_container_width=True,
+        )
+        prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
         if clear_chat:
             st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             st.rerun()
@@ -497,7 +491,8 @@ def main() -> None:
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
 
-    main_c, chat_c = st.columns([2.15, 1], gap="medium")
+    # Etwas breiterer KI-Block rechts (vorher zu schmal für Eingabe + Aktionen)
+    main_c, chat_c = st.columns([1.68, 1.28], gap="medium")
     with main_c:
         nav_now = st.session_state.get("current_nav", "home")
         if nav_now != "home":
