@@ -46,6 +46,56 @@ def _migrate_documents_archived(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_persons_and_document_owners(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS persons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            role TEXT,
+            relationship TEXT,
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    rows = conn.execute("PRAGMA table_info(documents)").fetchall()
+    existing = {str(r[1]) for r in rows}
+    if "owner_kind" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN owner_kind TEXT")
+    if "owner_person_id" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN owner_person_id INTEGER")
+    if "owner_household_id" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN owner_household_id INTEGER")
+
+
+def _migrate_drop_household_entity(conn: sqlite3.Connection) -> None:
+    """Haushalt ist keine Speicher-Entität: alte Zuordnungen leeren, Tabelle households entfernen."""
+    conn.execute(
+        """
+        UPDATE documents SET owner_kind = NULL, owner_person_id = NULL, owner_household_id = NULL
+        WHERE owner_kind = 'household'
+        """
+    )
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='households'"
+    ).fetchone()
+    if row:
+        conn.execute("DROP TABLE households")
+
+
+def _ensure_main_person_seed(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT id FROM persons WHERE is_primary = 1 LIMIT 1").fetchone()
+    if not row:
+        conn.execute(
+            """
+            INSERT INTO persons (name, role, relationship, is_primary, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Hauptnutzer", "Nutzer", "selbst", 1, _utc_now()),
+        )
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
@@ -107,6 +157,9 @@ def init_db() -> None:
         _migrate_extractions_columns(conn)
         _migrate_documents_columns(conn)
         _migrate_documents_archived(conn)
+        _migrate_persons_and_document_owners(conn)
+        _migrate_drop_household_entity(conn)
+        _ensure_main_person_seed(conn)
         conn.commit()
 
 
@@ -209,6 +262,20 @@ def _not_archived_clause() -> str:
     return "COALESCE(d.archived, 0) = 0"
 
 
+def _documents_owner_join() -> str:
+    return """
+            LEFT JOIN persons p ON d.owner_kind = 'person' AND d.owner_person_id = p.id
+            """
+
+
+def _documents_select_extra() -> str:
+    return """
+                p.name AS person_display_name,
+                p.role AS person_role,
+                CAST(NULL AS TEXT) AS household_display_name
+            """
+
+
 def list_documents() -> list[dict[str, Any]]:
     na = _not_archived_clause()
     with get_conn() as conn:
@@ -218,9 +285,11 @@ def list_documents() -> list[dict[str, Any]]:
                 e.nav_folder, e.folder_sub, e.document_kind,
                 e.linked_payment_doc_id, e.zahlstatus,
                 e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
-                e.include_monthly_expense, e.reference_ids_json
+                e.include_monthly_expense, e.reference_ids_json,
+                {_documents_select_extra()}
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
+            {_documents_owner_join()}
             WHERE {na}
             ORDER BY d.id DESC
             """
@@ -240,9 +309,11 @@ def list_documents_for_nav(nav_key: str | None) -> list[dict[str, Any]]:
                 e.nav_folder, e.folder_sub, e.document_kind,
                 e.linked_payment_doc_id, e.zahlstatus,
                 e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
-                e.include_monthly_expense, e.reference_ids_json
+                e.include_monthly_expense, e.reference_ids_json,
+                {_documents_select_extra()}
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
+            {_documents_owner_join()}
             WHERE IFNULL(e.nav_folder, '') = ? AND {na}
             ORDER BY (e.folder_sub IS NULL), e.folder_sub, d.id DESC
             """,
@@ -699,3 +770,89 @@ def try_auto_link_same_case_reference(doc_id: int) -> None:
             if my_kind in ("reminder", "payment_demand") and ok in ("reminder", "payment_demand"):
                 set_payment_link_pair(doc_id, oid)
                 return
+
+
+def list_persons() -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM persons ORDER BY is_primary DESC, id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_main_person() -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM persons WHERE is_primary = 1 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def create_person(
+    *,
+    name: str,
+    role: str | None = None,
+    relationship: str | None = None,
+) -> int:
+    n = (name or "").strip()
+    if not n:
+        raise ValueError("Name fehlt")
+    created = _utc_now()
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO persons (name, role, relationship, is_primary, created_at)
+            VALUES (?, ?, ?, 0, ?)
+            """,
+            (n, (role or "").strip() or None, (relationship or "").strip() or None, created),
+        )
+        return int(cur.lastrowid)
+
+
+def resolve_person_ids_by_name(name_part: str) -> list[int]:
+    """Teilstring auf Personenname (case-insensitive)."""
+    q = (name_part or "").strip()
+    if len(q) < 2:
+        return []
+    needle = f"%{q}%"
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM persons WHERE LOWER(name) LIKE LOWER(?) ORDER BY id ASC",
+            (needle,),
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+
+def set_document_owner(document_id: int, *, person_id: int | None) -> None:
+    """Zuordnung nur zu einer Person; ``person_id is None`` = noch nicht zugeordnet."""
+    did = int(document_id)
+    with get_conn() as conn:
+        if person_id is None:
+            conn.execute(
+                """
+                UPDATE documents SET owner_kind = NULL, owner_person_id = NULL,
+                    owner_household_id = NULL WHERE id = ?
+                """,
+                (did,),
+            )
+            return
+        pid = int(person_id)
+        if pid <= 0:
+            return
+        conn.execute(
+            """
+            UPDATE documents SET owner_kind = 'person', owner_person_id = ?,
+                owner_household_id = NULL WHERE id = ?
+            """,
+            (pid, did),
+        )
+
+
+def document_needs_owner(document_id: int) -> bool:
+    doc = get_document(document_id)
+    if not doc:
+        return False
+    ok = (doc.get("owner_kind") or "").strip()
+    if ok == "household":
+        return True
+    return ok == ""

@@ -21,6 +21,8 @@ from ingest import save_uploaded_pdf_to_inbox
 from db import (
     clear_payment_link,
     create_matter,
+    create_person,
+    document_needs_owner,
     documents_for_matter,
     find_documents_sharing_keys,
     get_document,
@@ -29,11 +31,13 @@ from db import (
     link_document_to_matter,
     list_archived_documents,
     list_documents,
-    list_reference_key_clusters,
     list_documents_for_nav,
     list_matters,
+    list_persons,
+    list_reference_key_clusters,
     matter_ids_for_document,
     set_document_archived,
+    set_document_owner,
     set_include_monthly_expense,
     set_payment_link_pair,
     set_zahlstatus_for_document,
@@ -48,6 +52,7 @@ from home_overlay import maybe_show_home_overlay
 from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from pwa_inject import inject_pwa_tags
 from dashboard_ui import render_finance_dashboard
+from household_aggregate import aggregate_owner_totals
 from ui_theme import inject_neon_styles
 
 load_dotenv()
@@ -138,6 +143,189 @@ def _enqueue_monthly_expense_prompt(doc_id: int) -> None:
     q = st.session_state.setdefault("pending_monthly_expense_docs", [])
     if doc_id not in q:
         q.append(doc_id)
+
+
+def _normalize_docu_context_key(raw: str | None) -> str:
+    r = (raw or "all").strip()
+    if r.startswith("household:"):
+        return "household"
+    return r
+
+
+def _docu_context_key() -> str:
+    return _normalize_docu_context_key(str(st.session_state.get("docu_context_key") or "all"))
+
+
+def filter_documents_by_context(
+    rows: list[dict[str, Any]], context_key: str | None
+) -> list[dict[str, Any]]:
+    ck = _normalize_docu_context_key(context_key)
+    if ck in ("all", "household"):
+        return rows
+    if ck.startswith("person:"):
+        pid = int(ck.split(":", 1)[1])
+        return [
+            r
+            for r in rows
+            if (r.get("owner_kind") or "") == "person"
+            and int(r.get("owner_person_id") or 0) == pid
+        ]
+    return rows
+
+
+def _enqueue_owner_prompt(doc_id: int) -> None:
+    if not document_needs_owner(doc_id):
+        return
+    q = st.session_state.setdefault("pending_owner_docs", [])
+    if doc_id not in q:
+        q.append(doc_id)
+
+
+def _apply_import_owner(doc_id: int) -> None:
+    """Nach Import: optional nur Person-Kontext zuordnen, sonst Rückfrage."""
+    if st.session_state.get("docu_assign_import_to_context"):
+        ck = _docu_context_key()
+        if ck.startswith("person:"):
+            set_document_owner(doc_id, person_id=int(ck.split(":", 1)[1]))
+            return
+    _enqueue_owner_prompt(doc_id)
+
+
+def _render_document_owner_editor(doc_id: int, doc: dict[str, Any]) -> None:
+    """Nur Personen (Haushalt ist keine Speicher-Zuordnung)."""
+    entries: list[tuple[str, int | None]] = [("— nicht zugeordnet —", None)]
+    for p in list_persons():
+        entries.append((f"Person: {p.get('name')}", int(p["id"])))
+    labels = [e[0] for e in entries]
+    cur_i = 0
+    ok = (doc.get("owner_kind") or "").strip()
+    for j, e in enumerate(entries):
+        _, pid = e
+        if pid is None and not ok:
+            cur_i = j
+            break
+        if pid is not None and ok == "person" and int(doc.get("owner_person_id") or 0) == pid:
+            cur_i = j
+            break
+    c_a, c_b = st.columns([3, 1])
+    with c_a:
+        pick = st.selectbox(
+            "Zuordnung (Person)",
+            range(len(labels)),
+            index=min(cur_i, len(labels) - 1),
+            format_func=lambda i: labels[i],
+            key=f"doc_own_sb_{doc_id}",
+        )
+    with c_b:
+        st.write("")
+        st.write("")
+        if st.button("Speichern", key=f"doc_own_go_{doc_id}"):
+            _, pid = entries[int(pick)]
+            set_document_owner(doc_id, person_id=pid)
+            st.success("Zuordnung gespeichert.")
+            st.rerun()
+
+
+def _document_owner_label(doc: dict[str, Any]) -> str:
+    ok = (doc.get("owner_kind") or "").strip()
+    if not ok:
+        return "— noch nicht zugeordnet —"
+    if ok == "person" and doc.get("owner_person_id") is not None:
+        pid = int(doc["owner_person_id"])
+        for p in list_persons():
+            if int(p["id"]) == pid:
+                return f"Person: {p.get('name') or pid}"
+        return f"Person #{pid}"
+    if ok == "household":
+        return "— veraltet: bitte Person zuweisen —"
+    return "—"
+
+
+def _render_context_switcher() -> None:
+    opts: list[tuple[str, str]] = [
+        ("Alle Dokumente", "all"),
+        ("Haushalt (Gesamt, nur Auswertung)", "household"),
+    ]
+    for p in list_persons():
+        lab = str(p.get("name") or "Person")
+        if p.get("is_primary"):
+            lab = f"{lab} (Ich)"
+        opts.append((lab, f"person:{int(p['id'])}"))
+    keys = [k for _, k in opts]
+    labels_map = {k: lab for lab, k in opts}
+    cur = _docu_context_key()
+    idx = keys.index(cur) if cur in keys else 0
+    picked = st.selectbox(
+        "Ansicht / Kontext",
+        keys,
+        index=idx,
+        format_func=lambda k: labels_map.get(k, k),
+        key="docu_context_pick",
+        help=(
+            "„Haushalt“: alle Belege aller Personen (virtuelle Gesamtansicht, keine Haushalts-Speicherung). "
+            "„Person“: nur deren Dokumente."
+        ),
+    )
+    st.session_state.docu_context_key = picked
+    st.checkbox(
+        "Neue Imports der gewählten Person zuordnen",
+        value=False,
+        key="docu_assign_import_to_context",
+        help="Nur wirksam, wenn eine Person (nicht „Alle“/„Haushalt“) gewählt ist.",
+    )
+
+
+def _render_owner_assignment_queue() -> None:
+    q = st.session_state.setdefault("pending_owner_docs", [])
+    if not q:
+        return
+    did = int(q[0])
+    doc = get_document(did)
+    if not doc:
+        q.pop(0)
+        return
+    if not document_needs_owner(did):
+        q.pop(0)
+        return
+    st.warning(
+        f"**Wem gehört dieses Dokument?** #{did} — `{doc.get('original_filename')}`"
+    )
+    entries: list[tuple[str, int]] = []
+    for p in list_persons():
+        entries.append((f"Person: {p.get('name')}", int(p["id"])))
+    if not entries:
+        st.caption("Keine Person in der Datenbank — bitte App neu starten (DB-Init).")
+        return
+    labels = [e[0] for e in entries]
+    choice = st.radio(
+        "Zuordnung",
+        labels,
+        key=f"ownq_pick_{did}",
+        horizontal=len(labels) <= 3,
+    )
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("Zuordnung speichern", type="primary", key=f"ownq_ok_{did}"):
+            i = labels.index(choice)
+            pid = entries[i][1]
+            set_document_owner(did, person_id=pid)
+            q.pop(0)
+            st.rerun()
+    with b2:
+        if st.button("Später", key=f"ownq_skip_{did}"):
+            q.pop(0)
+            st.rerun()
+    with st.expander("Neue Person anlegen & zuordnen"):
+        nn = st.text_input("Name", key=f"ownq_nn_{did}")
+        nr = st.text_input("Rolle (z. B. Kind)", key=f"ownq_nr_{did}")
+        if st.button("Person anlegen & zuordnen", key=f"ownq_np_{did}"):
+            if not (nn or "").strip():
+                st.error("Name eingeben.")
+            else:
+                pid_new = create_person(name=nn.strip(), role=(nr or "").strip() or None)
+                set_document_owner(did, person_id=pid_new)
+                q.pop(0)
+                st.rerun()
 
 
 def _render_payment_status_queue() -> None:
@@ -362,7 +550,9 @@ def _render_sidebar_pdf_upload() -> None:
                     else:
                         ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
                         st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
-                        _enqueue_payment_prompt(int(r["id"]))
+                        rid = int(r["id"])
+                        _apply_import_owner(rid)
+                        _enqueue_payment_prompt(rid)
             st.rerun()
 
 
@@ -383,6 +573,35 @@ def _append_chat_activity(text: str) -> None:
     st.session_state.ai_chat_messages = _trim_chat_messages(
         st.session_state.ai_chat_messages, keep_non_system=40
     )
+
+
+def _apply_organizer_chat_tool_effects(effects: list[dict[str, Any]]) -> None:
+    """Nach KI-Chat: show_document → Navigation + Dokumentauswahl."""
+    for eff in effects:
+        if eff.get("action") != "show_document":
+            continue
+        did = int(eff["document_id"])
+        dev = str(eff.get("target_device") or "pc").lower()
+        doc = get_document(did)
+        if not doc:
+            continue
+        ext = get_extraction(did)
+        nf = "home"
+        if ext and (ext.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
+            nf = str(ext.get("nav_folder")).strip()
+        st.session_state["current_nav"] = nf
+        st.session_state["sidebar_nav_choice"] = nf
+        st.session_state["jump_doc_id"] = did
+        if dev == "tv":
+            st.session_state["docu_pending_device_hint"] = (
+                "**Ausgabe TV:** Dokument ist hier vorgewählt. Auf dem Fernseher dieselbe App öffnen und "
+                f"**Dokument #{did}** unter **{NAV_LABELS.get(nf, nf)}** ansteuern."
+            )
+        elif dev == "tablet":
+            st.session_state["docu_pending_device_hint"] = (
+                f"**Ausgabe Tablet:** Dokument **#{did}** ist auf diesem Gerät vorgewählt — auf dem Tablet "
+                "dieselbe Ansicht öffnen."
+            )
 
 
 def _after_llm_document_hooks(doc_id: int, _out: dict[str, Any] | None) -> None:
@@ -491,9 +710,11 @@ def _render_assistant_chat() -> None:
             '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.35rem 0;">'
             "KI-Assistent</p>"
             '<p class="sidebar-muted" style="margin:0 0 0.5rem 0;font-size:0.82rem;">'
-            "Fragen, Belege finden, Ablage per Tool — Dokument-KI schreibt beim Analysieren mit.</p></div>",
+            "Natürliche Sprache → Suche & Filter; optional Anzeige auf PC/Tablet/TV — Dokument-KI schreibt beim Analysieren mit.</p></div>",
             unsafe_allow_html=True,
         )
+        if st.session_state.get("docu_pending_device_hint"):
+            st.info(str(st.session_state.pop("docu_pending_device_hint")), icon="📺")
         try:
             scroll = st.container(height=CHAT_MSG_HEIGHT, border=True)
         except TypeError:
@@ -522,7 +743,12 @@ def _render_assistant_chat() -> None:
             )
             try:
                 with st.spinner("KI antwortet…"):
-                    reply = run_organizer_chat(st.session_state.ai_chat_messages)
+                    chat_effects: list[dict[str, Any]] = []
+                    reply = run_organizer_chat(
+                        st.session_state.ai_chat_messages,
+                        tool_effects=chat_effects,
+                    )
+                    _apply_organizer_chat_tool_effects(chat_effects)
                 st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
             except Exception as e:
                 st.session_state.ai_chat_messages.append(
@@ -547,6 +773,10 @@ def main() -> None:
         st.session_state.auto_matter_after_llm = True
     if "current_nav" not in st.session_state:
         st.session_state.current_nav = "home"
+    if "docu_context_key" not in st.session_state:
+        st.session_state.docu_context_key = "all"
+    elif str(st.session_state.docu_context_key).startswith("household:"):
+        st.session_state.docu_context_key = "household"
     maybe_show_home_overlay()
 
     with st.sidebar:
@@ -561,6 +791,8 @@ def main() -> None:
             label_visibility="collapsed",
         )
         st.session_state.current_nav = picked
+        st.divider()
+        _render_context_switcher()
         _render_sidebar_pdf_upload()
         st.divider()
         _render_sidebar_update_button()
@@ -632,7 +864,7 @@ def main() -> None:
         dq = (st.session_state.get("doc_search_q") or "").strip()
         if dq:
             hits: list[dict[str, Any]] = []
-            for r in list_documents():
+            for r in filter_documents_by_context(list_documents(), _docu_context_key()):
                 parts = [
                     str(r.get("original_filename") or "").lower(),
                     str(r.get("summary_de") or "").lower(),
@@ -743,8 +975,34 @@ def main() -> None:
             st.title("Dokumenten-Organizer")
         _render_payment_status_queue()
         _render_monthly_expense_queue()
+        _render_owner_assignment_queue()
+        ctx_k = _docu_context_key()
         if nav_now == "home":
-            render_finance_dashboard(list_documents())
+            all_rows = list_documents()
+            render_finance_dashboard(filter_documents_by_context(all_rows, ctx_k))
+            if ctx_k == "household":
+                st.caption(
+                    "**Haushalt:** Gesamtansicht über alle Personen — es werden keine Daten „im Haushalt“ gespeichert."
+                )
+            agg = aggregate_owner_totals(all_rows)
+            tb = agg.get("totals_by_key") or {}
+            if tb:
+                with st.expander("Ausgaben nach Zuordnung (alle Belege, nicht nach Kontext gefiltert)", expanded=False):
+                    st.caption(
+                        "Summen aus KI-Betrag und Ausgaben-Ordnern — gleiche Logik wie Dashboard-Kacheln."
+                    )
+                    for k, v in sorted(tb.items(), key=lambda x: -x[1]):
+                        label = k
+                        if k.startswith("person:"):
+                            pid = int(k.split(":", 1)[1])
+                            label = next(
+                                (f"{p.get('name')} (Person)" for p in list_persons() if int(p["id"]) == pid),
+                                k,
+                            )
+                        elif k == "unassigned":
+                            label = "Noch nicht zugeordnet"
+                        st.write(f"**{label}:** {_fmt_de_eur(float(v))}")
+                    st.write(f"**Summe:** {_fmt_de_eur(agg['grand_expense_eur'])}")
         else:
             st.markdown(
                 '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
@@ -775,7 +1033,9 @@ def main() -> None:
                         else:
                             ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
                             st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
-                            _enqueue_payment_prompt(int(r["id"]))
+                            rid = int(r["id"])
+                            _apply_import_owner(rid)
+                            _enqueue_payment_prompt(rid)
             st.divider()
             pdfs = sorted(INBOX_DIR.glob("*.pdf")) if INBOX_DIR.exists() else []
             st.write(f"Aktuell **{len(pdfs)}** PDF(s) im Posteingang.")
@@ -783,7 +1043,10 @@ def main() -> None:
         with tab_docs:
             nav_key = st.session_state.get("current_nav", "home")
             st.subheader(NAV_LABELS.get(nav_key, "Dokumente"))
-            rows = list_documents_for_nav(nav_key if nav_key != "home" else None)
+            rows = filter_documents_by_context(
+                list_documents_for_nav(nav_key if nav_key != "home" else None),
+                ctx_k,
+            )
             if not rows:
                 st.info(
                     "Noch keine Dokumente in diesem Bereich. PDFs in der **Sidebar** oder "
@@ -922,6 +1185,8 @@ def main() -> None:
                 with c1:
                     st.markdown("#### Metadaten")
                     st.write(f"**Datei:** {doc['original_filename']}")
+                    st.caption(f"**Zuordnung:** {_document_owner_label(doc)}")
+                    _render_document_owner_editor(doc_id, doc)
                     st.write(f"**Zeichen Text:** {doc['text_char_count']}")
                     with st.expander("Technische Details", expanded=False):
                         st.code(doc["stored_path"] or "—", language=None)
