@@ -40,6 +40,10 @@ from ui_theme import inject_neon_styles
 
 load_dotenv()
 
+# Zweiphasige KI-Analyse (Chat-Feed); Scroll-Höhe Chat-Verlauf (Pixel)
+PENDING_LLM_KEY = "docu_pending_llm"
+CHAT_SCROLL_HEIGHT = int(os.environ.get("DOCU_CHAT_SCROLL_HEIGHT", "660"))
+
 CATEGORY_DE = {
     "energy": "Energie (Strom/Gas)",
     "legal": "Recht / Anwalt",
@@ -211,26 +215,130 @@ def _trim_chat_messages(msgs: list[dict[str, Any]], *, keep_non_system: int = 24
     return sys + rest[-keep_non_system:]
 
 
+def _ensure_chat_messages() -> None:
+    if "ai_chat_messages" not in st.session_state:
+        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+
+def _append_chat_activity(text: str) -> None:
+    _ensure_chat_messages()
+    st.session_state.ai_chat_messages.append({"role": "assistant", "content": text})
+    st.session_state.ai_chat_messages = _trim_chat_messages(
+        st.session_state.ai_chat_messages, keep_non_system=40
+    )
+
+
+def _after_llm_document_hooks(doc_id: int, _out: dict[str, Any] | None) -> None:
+    """Zahlstatus-/Monatsausgaben-Warteschlange wie nach bisherigem KI-Button."""
+    ext2 = get_extraction(doc_id)
+    if not ext2:
+        return
+    nk = _norm_kind(ext2.get("document_kind"))
+    navf = ext2.get("nav_folder") or ""
+    if (nk in ("invoice", "reminder", "payment_demand") or navf == "mahnungen") and not (
+        ext2.get("zahlstatus") or ""
+    ).strip():
+        doc2 = get_document(doc_id)
+        if doc2 and not (doc2.get("initial_zahlstatus") or "").strip():
+            _enqueue_payment_prompt(doc_id)
+    if is_expense_monthly_prompt_candidate(ext2) and ext2.get("include_monthly_expense") is None:
+        _enqueue_monthly_expense_prompt(doc_id)
+
+
+def _drain_pending_llm_job() -> None:
+    """Start-/Ende-Meldungen im Chat; Analyse in Phase 2 (eigener Rerun)."""
+    job = st.session_state.get(PENDING_LLM_KEY)
+    if not job:
+        return
+    phase = job.get("phase")
+    doc_id = int(job["doc_id"])
+    fname = str(job.get("filename") or "")
+
+    if phase == 1:
+        if not os.environ.get("OPENAI_API_KEY"):
+            st.session_state.pop(PENDING_LLM_KEY, None)
+            st.error("OPENAI_API_KEY fehlt — KI-Analyse nicht möglich.")
+            return
+        _append_chat_activity(
+            f"**Dokument-KI** startet … **#{doc_id}** `{fname}`\n\n"
+            "_Strukturieren, Ablage, Kennungen — bitte kurz warten._"
+        )
+        job["phase"] = 2
+        st.session_state[PENDING_LLM_KEY] = job
+        st.rerun()
+
+    if phase == 2:
+        doc = get_document(doc_id)
+        if not doc:
+            _append_chat_activity(f"**Dokument-KI** abgebrochen: Dokument **#{doc_id}** nicht gefunden.")
+            st.session_state.pop(PENDING_LLM_KEY, None)
+            st.rerun()
+            return
+        try:
+            out = run_llm_on_document(
+                doc_id,
+                auto_matter=bool(st.session_state.get("auto_matter_after_llm", True)),
+            )
+        except Exception as e:
+            _append_chat_activity(f"**Dokument-KI Fehler** (#{doc_id}): {e}")
+            st.session_state.pop(PENDING_LLM_KEY, None)
+            st.rerun()
+            return
+
+        ext2 = get_extraction(doc_id)
+        lines = [
+            f"**Dokument-KI fertig** **#{doc_id}** `{doc.get('original_filename', '')}`",
+        ]
+        if ext2:
+            navf = ext2.get("nav_folder") or ""
+            nav_label = NAV_LABELS.get(navf, navf or "—")
+            fs = ext2.get("folder_sub")
+            lines.append(f"- **Ablage:** {nav_label}" + (f" → `{fs}`" if fs else ""))
+            lines.append(f"- **Art:** `{ext2.get('document_kind') or '—'}`")
+            lines.append(
+                f"- **Kategorie:** {CATEGORY_DE.get(ext2.get('category'), ext2.get('category') or '—')}"
+            )
+            sd = (ext2.get("summary_de") or "").strip()
+            if sd:
+                tail = "…" if len(sd) > 280 else ""
+                lines.append(f"- **Kurz:** {sd[:280]}{tail}")
+        am = out.get("_auto_matter") if isinstance(out, dict) else None
+        if am:
+            lines.append(
+                f"- **Vorgang:** #{am['matter_id']} — {am['title']} ({am['linked_count']} Dok.)"
+            )
+        _append_chat_activity("\n".join(lines))
+        _after_llm_document_hooks(doc_id, out if isinstance(out, dict) else None)
+        st.session_state.pop(PENDING_LLM_KEY, None)
+        st.session_state["docu_show_llm_ok"] = doc_id
+        st.rerun()
+
+
 def _render_assistant_chat() -> None:
     st.markdown(
         '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.5rem 0;">'
         "KI-Assistent</p>"
         "<p class=\"sidebar-muted\" style=\"margin:0 0 0.75rem 0;\">Fragen zur App, Belege finden, "
-        "Ablage per Tool ändern (nach KI-Analyse).</p></div>",
+        "Ablage per Tool ändern (nach KI-Analyse). Dokument-KI schreibt hier beim Analysieren mit.</p></div>",
         unsafe_allow_html=True,
     )
     if not os.environ.get("OPENAI_API_KEY"):
         st.caption("Chat benötigt `OPENAI_API_KEY`.")
         return
-    if "ai_chat_messages" not in st.session_state:
-        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in st.session_state.ai_chat_messages:
-        if m.get("role") == "system":
-            continue
-        with st.chat_message(m["role"]):
-            st.markdown(m.get("content") or "")
+    _ensure_chat_messages()
+    try:
+        scroll = st.container(height=CHAT_SCROLL_HEIGHT, border=True)
+    except TypeError:
+        scroll = st.container()
+    with scroll:
+        for m in st.session_state.ai_chat_messages:
+            if m.get("role") == "system":
+                continue
+            with st.chat_message(m["role"]):
+                st.markdown(m.get("content") or "")
     prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
     if prompt:
+        _ensure_chat_messages()
         st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
         st.session_state.ai_chat_messages = _trim_chat_messages(
             st.session_state.ai_chat_messages, keep_non_system=28
@@ -245,6 +353,7 @@ def _render_assistant_chat() -> None:
             )
         st.rerun()
     if st.button("Chat leeren", key="organizer_chat_clear"):
+        _ensure_chat_messages()
         st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         st.rerun()
 
@@ -257,6 +366,7 @@ def main() -> None:
     )
     inject_neon_styles()
     init_db()
+    _drain_pending_llm_job()
     if "auto_matter_after_llm" not in st.session_state:
         st.session_state.auto_matter_after_llm = True
     if "current_nav" not in st.session_state:
@@ -405,11 +515,14 @@ def main() -> None:
                 else:
                     id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
                     choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
-                doc_id = id_opts[choice]
-                doc = get_document(doc_id)
-                ext = get_extraction(doc_id)
-    
-                c1, c2 = st.columns(2)
+            doc_id = id_opts[choice]
+            doc = get_document(doc_id)
+            ext = get_extraction(doc_id)
+            if st.session_state.get("docu_show_llm_ok") == doc_id:
+                st.success("Analyse gespeichert — Details im **KI-Chat** rechts.")
+                del st.session_state["docu_show_llm_ok"]
+
+            c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("#### Metadaten")
                     st.write(f"**Datei:** {doc['original_filename']}")
@@ -493,36 +606,12 @@ def main() -> None:
                 with c2:
                     st.markdown("#### Aktionen")
                     if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
-                        try:
-                            with st.spinner("KI-Analyse…"):
-                                out = run_llm_on_document(
-                                    doc_id,
-                                    auto_matter=bool(st.session_state.get("auto_matter_after_llm", True)),
-                                )
-                            st.success("Analyse gespeichert.")
-                            am = out.get("_auto_matter") if isinstance(out, dict) else None
-                            if am:
-                                st.info(
-                                    f"Automatischer Vorgang **#{am['matter_id']}** — {am['title']} "
-                                    f"({am['linked_count']} Dokument(e) mit dieser Kennung)."
-                                )
-                            ext2 = get_extraction(doc_id)
-                            if ext2:
-                                nk = _norm_kind(ext2.get("document_kind"))
-                                navf = ext2.get("nav_folder") or ""
-                                if (nk in ("invoice", "reminder", "payment_demand") or navf == "mahnungen") and not (
-                                    ext2.get("zahlstatus") or ""
-                                ).strip():
-                                    doc2 = get_document(doc_id)
-                                    if doc2 and not (doc2.get("initial_zahlstatus") or "").strip():
-                                        _enqueue_payment_prompt(doc_id)
-                                if is_expense_monthly_prompt_candidate(ext2) and ext2.get(
-                                    "include_monthly_expense"
-                                ) is None:
-                                    _enqueue_monthly_expense_prompt(doc_id)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
+                        st.session_state[PENDING_LLM_KEY] = {
+                            "phase": 1,
+                            "doc_id": doc_id,
+                            "filename": doc.get("original_filename", ""),
+                        }
+                        st.rerun()
     
                     matters = list_matters()
                     current = matter_ids_for_document(doc_id)
