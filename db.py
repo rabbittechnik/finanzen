@@ -24,9 +24,19 @@ def _migrate_extractions_columns(conn: sqlite3.Connection) -> None:
         ("document_kind", "TEXT"),
         ("linked_payment_doc_id", "INTEGER"),
         ("zahlstatus", "TEXT"),
+        ("primary_amount_eur", "REAL"),
+        ("payslip_net_income_eur", "REAL"),
+        ("include_monthly_expense", "INTEGER"),
     ):
         if col not in existing:
             conn.execute(f"ALTER TABLE extractions ADD COLUMN {col} {decl}")
+
+
+def _migrate_documents_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(documents)").fetchall()
+    existing = {str(r[1]) for r in rows}
+    if "initial_zahlstatus" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN initial_zahlstatus TEXT")
 
 
 def init_db() -> None:
@@ -88,6 +98,7 @@ def init_db() -> None:
             """
         )
         _migrate_extractions_columns(conn)
+        _migrate_documents_columns(conn)
         conn.commit()
 
 
@@ -117,6 +128,7 @@ def insert_document(
     sha256: str,
     extracted_text: str,
     needs_ocr: bool,
+    initial_zahlstatus: str | None = None,
 ) -> int:
     created = _utc_now()
     char_count = len(extracted_text or "")
@@ -124,8 +136,8 @@ def insert_document(
         cur = conn.execute(
             """
             INSERT INTO documents (original_filename, stored_path, sha256, extracted_text,
-                text_char_count, needs_ocr, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                text_char_count, needs_ocr, created_at, initial_zahlstatus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 original_filename,
@@ -135,9 +147,39 @@ def insert_document(
                 char_count,
                 1 if needs_ocr else 0,
                 created,
+                initial_zahlstatus,
             ),
         )
         return int(cur.lastrowid)
+
+
+def set_document_initial_zahlstatus(document_id: int, status: str | None) -> None:
+    if status is not None and status not in ("offen", "bezahlt"):
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE documents SET initial_zahlstatus = ? WHERE id = ?",
+            (status, document_id),
+        )
+
+
+def clear_document_initial_zahlstatus(document_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE documents SET initial_zahlstatus = NULL WHERE id = ?",
+            (document_id,),
+        )
+
+
+def set_include_monthly_expense(document_id: int, value: int) -> None:
+    """1 = zu Monatsausgaben zählen, 0 = nicht zählen."""
+    if value not in (0, 1):
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE extractions SET include_monthly_expense = ? WHERE document_id = ?",
+            (value, document_id),
+        )
 
 
 def list_documents() -> list[dict[str, Any]]:
@@ -146,7 +188,9 @@ def list_documents() -> list[dict[str, Any]]:
             """
             SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
                 e.nav_folder, e.folder_sub, e.document_kind,
-                e.linked_payment_doc_id, e.zahlstatus
+                e.linked_payment_doc_id, e.zahlstatus,
+                e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
+                e.include_monthly_expense
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
             ORDER BY d.id DESC
@@ -164,7 +208,9 @@ def list_documents_for_nav(nav_key: str | None) -> list[dict[str, Any]]:
             """
             SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
                 e.nav_folder, e.folder_sub, e.document_kind,
-                e.linked_payment_doc_id, e.zahlstatus
+                e.linked_payment_doc_id, e.zahlstatus,
+                e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
+                e.include_monthly_expense
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
             WHERE IFNULL(e.nav_folder, '') = ?
@@ -206,6 +252,9 @@ def upsert_extraction(
     document_kind: str | None = None,
     linked_payment_doc_id: int | None = None,
     zahlstatus: str | None = None,
+    primary_amount_eur: float | None = None,
+    payslip_net_income_eur: float | None = None,
+    include_monthly_expense: int | None = None,
 ) -> None:
     created = _utc_now()
     amounts_json = json.dumps(amounts, ensure_ascii=False)
@@ -215,8 +264,9 @@ def upsert_extraction(
             """
             INSERT INTO extractions (document_id, category, sender_name, sender_role, subject,
                 document_date, amounts_json, reference_ids_json, summary_de, raw_json, created_at,
-                nav_folder, folder_sub, document_kind, linked_payment_doc_id, zahlstatus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                nav_folder, folder_sub, document_kind, linked_payment_doc_id, zahlstatus,
+                primary_amount_eur, payslip_net_income_eur, include_monthly_expense)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(document_id) DO UPDATE SET
                 category = excluded.category,
                 sender_name = excluded.sender_name,
@@ -232,7 +282,10 @@ def upsert_extraction(
                 folder_sub = excluded.folder_sub,
                 document_kind = excluded.document_kind,
                 linked_payment_doc_id = excluded.linked_payment_doc_id,
-                zahlstatus = excluded.zahlstatus
+                zahlstatus = excluded.zahlstatus,
+                primary_amount_eur = excluded.primary_amount_eur,
+                payslip_net_income_eur = excluded.payslip_net_income_eur,
+                include_monthly_expense = excluded.include_monthly_expense
             """,
             (
                 document_id,
@@ -251,6 +304,9 @@ def upsert_extraction(
                 document_kind,
                 linked_payment_doc_id,
                 zahlstatus,
+                primary_amount_eur,
+                payslip_net_income_eur,
+                include_monthly_expense,
             ),
         )
 
@@ -443,6 +499,24 @@ def set_zahlstatus_linked(doc_id: int, status: str) -> None:
             )
 
 
+def set_zahlstatus_for_document(doc_id: int, status: str) -> None:
+    """Zahlstatus setzen: mit Partner (linked) oder nur Extraktion / nur Dokument vor KI."""
+    if status not in ("offen", "bezahlt"):
+        return
+    ext = get_extraction(doc_id)
+    if ext and ext.get("linked_payment_doc_id"):
+        set_zahlstatus_linked(doc_id, status)
+        return
+    if ext:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE extractions SET zahlstatus = ? WHERE document_id = ?",
+                (status, doc_id),
+            )
+        return
+    set_document_initial_zahlstatus(doc_id, status)
+
+
 def try_auto_link_invoice_reminder(doc_id: int) -> None:
     """Gleiche Rechnungsnummer in reference_keys + eine Rechnung / eine Mahnung → automatisch verknüpfen."""
     from nav_logic import _norm_kind
@@ -451,9 +525,12 @@ def try_auto_link_invoice_reminder(doc_id: int) -> None:
     if not ext or ext.get("linked_payment_doc_id"):
         return
     my_kind = _norm_kind(ext.get("document_kind"))
-    if my_kind not in ("invoice", "reminder"):
+    if my_kind not in ("invoice", "reminder", "payment_demand"):
         return
-    partner_kind = "reminder" if my_kind == "invoice" else "invoice"
+    if my_kind == "invoice":
+        partner_kinds = ("reminder", "payment_demand")
+    else:
+        partner_kinds = ("invoice", "reminder", "payment_demand")
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT key_value FROM reference_keys WHERE document_id = ? AND id_type = ?",
@@ -469,6 +546,55 @@ def try_auto_link_invoice_reminder(doc_id: int) -> None:
             oext = get_extraction(oid)
             if not oext or oext.get("linked_payment_doc_id"):
                 continue
-            if _norm_kind(oext.get("document_kind")) == partner_kind:
+            if _norm_kind(oext.get("document_kind")) in partner_kinds:
+                set_payment_link_pair(doc_id, oid)
+                return
+
+
+def _sender_norm(name: str | None) -> str:
+    return " ".join((name or "").lower().split())
+
+
+def try_auto_link_same_case_reference(doc_id: int) -> None:
+    """
+    Gleiches Aktenzeichen + gleicher Absender: Rechnung / Mahnung / Zahlungsaufforderung verknüpfen.
+    Unterschiedliche Aktenzeichen derselben Kanzlei bleiben getrennt (anderer key).
+    """
+    from nav_logic import _norm_kind
+
+    ext = get_extraction(doc_id)
+    if not ext or ext.get("linked_payment_doc_id"):
+        return
+    my_kind = _norm_kind(ext.get("document_kind"))
+    if my_kind not in ("invoice", "reminder", "payment_demand"):
+        return
+    my_sender = _sender_norm(ext.get("sender_name"))
+    if not my_sender:
+        return
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key_value FROM reference_keys WHERE document_id = ? AND id_type = ?",
+            (doc_id, "case_reference"),
+        ).fetchall()
+    for r in rows:
+        val = str(r["key_value"] or "").strip()
+        if not val:
+            continue
+        for oid in document_ids_for_reference_key("case_reference", val):
+            if oid == doc_id:
+                continue
+            oext = get_extraction(oid)
+            if not oext or oext.get("linked_payment_doc_id"):
+                continue
+            if _sender_norm(oext.get("sender_name")) != my_sender:
+                continue
+            ok = _norm_kind(oext.get("document_kind"))
+            if my_kind == "invoice" and ok in ("reminder", "payment_demand"):
+                set_payment_link_pair(doc_id, oid)
+                return
+            if my_kind in ("reminder", "payment_demand") and ok == "invoice":
+                set_payment_link_pair(doc_id, oid)
+                return
+            if my_kind in ("reminder", "payment_demand") and ok in ("reminder", "payment_demand"):
                 set_payment_link_pair(doc_id, oid)
                 return

@@ -23,11 +23,14 @@ from db import (
     list_documents_for_nav,
     list_matters,
     matter_ids_for_document,
+    set_include_monthly_expense,
     set_payment_link_pair,
+    set_zahlstatus_for_document,
     set_zahlstatus_linked,
     unlink_document_from_matter,
 )
-from nav_logic import NAV_KEYS_ORDER, NAV_LABELS
+from home_finance import compute_home_stats, is_expense_monthly_prompt_candidate
+from nav_logic import NAV_KEYS_ORDER, NAV_LABELS, _norm_kind
 from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
@@ -63,6 +66,147 @@ ROLE_DE = {
 }
 
 
+def _fmt_de_eur(v: float) -> str:
+    return f"{v:.2f} €".replace(".", ",")
+
+
+def _enqueue_payment_prompt(doc_id: int) -> None:
+    q = st.session_state.setdefault("pending_zahlstatus_docs", [])
+    if doc_id not in q:
+        q.append(doc_id)
+
+
+def _enqueue_monthly_expense_prompt(doc_id: int) -> None:
+    q = st.session_state.setdefault("pending_monthly_expense_docs", [])
+    if doc_id not in q:
+        q.append(doc_id)
+
+
+def _render_payment_status_queue() -> None:
+    q = st.session_state.setdefault("pending_zahlstatus_docs", [])
+    if not q:
+        return
+    did = int(q[0])
+    doc = get_document(did)
+    if not doc:
+        q.pop(0)
+        st.rerun()
+        return
+    init = (doc.get("initial_zahlstatus") or "").strip()
+    ext = get_extraction(did)
+    zs_ext = (ext.get("zahlstatus") or "").strip() if ext else ""
+    if zs_ext or init:
+        q.pop(0)
+        st.rerun()
+        return
+    st.markdown(
+        '<div class="neon-card" style="border-color:rgba(251,191,36,0.35);margin-bottom:1rem;">'
+        "<strong style='color:#fcd34d;'>Zahlstatus</strong> — bitte kurz angeben "
+        f"(Dokument <span style='color:#a5f3fc;'>#{did}</span> · "
+        f"{doc.get('original_filename', '')})</div>",
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        choice = st.radio(
+            "Ist diese Zahlungsaufforderung / Mahnung / Rechnung bereits beglichen?",
+            ("offen", "bezahlt"),
+            format_func=lambda x: "Noch offen" if x == "offen" else "Bereits bezahlt / erledigt",
+            horizontal=True,
+            key=f"pq_choice_{did}",
+        )
+    with c2:
+        if st.button("Speichern", type="primary", key=f"pq_ok_{did}"):
+            set_zahlstatus_for_document(did, choice)
+            q.pop(0)
+            st.success("Gespeichert.")
+            st.rerun()
+    with c3:
+        if st.button("Später", key=f"pq_skip_{did}"):
+            q.pop(0)
+            st.rerun()
+
+
+def _render_monthly_expense_queue() -> None:
+    q = st.session_state.setdefault("pending_monthly_expense_docs", [])
+    if not q:
+        return
+    did = int(q[0])
+    doc = get_document(did)
+    if not doc:
+        q.pop(0)
+        st.rerun()
+        return
+    ext = get_extraction(did)
+    if not ext or not is_expense_monthly_prompt_candidate(ext):
+        q.pop(0)
+        st.rerun()
+        return
+    if ext.get("include_monthly_expense") is not None:
+        q.pop(0)
+        st.rerun()
+        return
+    st.markdown(
+        '<div class="neon-card" style="border-color:rgba(110,231,255,0.35);margin-bottom:1rem;">'
+        "<strong style='color:#7dd3fc;'>Monatsausgaben</strong> — soll dieser Beleg in die "
+        f"<strong>monatlichen Ausgaben</strong> auf der Startseite einfließen? "
+        f"(Dokument <span style='color:#a5f3fc;'>#{did}</span> · "
+        f"{doc.get('original_filename', '')})</div>",
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        choice = st.radio(
+            "Zu den monatlichen Ausgaben dieses Monats zählen?",
+            (1, 0),
+            format_func=lambda x: "Ja, mitzählen" if x == 1 else "Nein, nicht mitzählen",
+            horizontal=True,
+            key=f"mq_choice_{did}",
+        )
+    with c2:
+        if st.button("Speichern", type="primary", key=f"mq_ok_{did}"):
+            set_include_monthly_expense(did, int(choice))
+            q.pop(0)
+            st.success("Gespeichert.")
+            st.rerun()
+    with c3:
+        if st.button("Später", key=f"mq_skip_{did}"):
+            q.pop(0)
+            st.rerun()
+
+
+def _render_home_dashboard() -> None:
+    stats = compute_home_stats(list_documents())
+    st.markdown(
+        '<p style="color:#94a3b8;font-size:0.95rem;margin:0 0 0.75rem 0;">'
+        "Überblick aus KI-Extraktion und Kennungen — Schuldensumme zählt offene Forderungen "
+        "<strong style='color:#a5f3fc;">pro Aktenzeichen/Kundennummer nur einmal</strong> "
+        "(verknüpfte Mahnung + Rechnung nicht doppelt).</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="neon-kpi-row">'
+        f'<div class="neon-kpi">'
+        f'<div class="neon-kpi-label">Einnahmen (Lohn)</div>'
+        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.income_month_eur)}</div>'
+        f'<div class="neon-kpi-sub">Nach Lohnabrechnung · <strong>{stats.month_label}</strong> '
+        f"(Netto laut KI-Feld <code>payslip_net_income_eur</code>)</div></div>"
+        f'<div class="neon-kpi magenta">'
+        f'<div class="neon-kpi-label">Schuldensumme (offen)</div>'
+        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.debt_open_eur)}</div>'
+        f'<div class="neon-kpi-sub">Zahlungsaufforderungen &amp; Mahnungen · '
+        f"<strong>{stats.debt_groups}</strong> getrennte Kennung(en)</div></div>"
+        f'<div class="neon-kpi gold">'
+        f'<div class="neon-kpi-label">Ausgaben (Monat)</div>'
+        f'<div class="neon-kpi-value">{_fmt_de_eur(stats.expense_month_eur)}</div>'
+        f'<div class="neon-kpi-sub">Ohne Ihre Auswahl zählen passende Belege vorläufig mit; '
+        f"<strong>Nein</strong> schließt explizit aus. Kalendermonat <strong>{stats.month_label}</strong> "
+        f"(Datum laut Dokument).</div></div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="Dokumenten-Organizer",
@@ -76,15 +220,6 @@ def main() -> None:
     if "current_nav" not in st.session_state:
         st.session_state.current_nav = "home"
     maybe_show_home_overlay()
-
-    st.title("Dokumenten-Organizer")
-    st.markdown(
-        '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
-        "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
-        "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
-        "</p></div>",
-        unsafe_allow_html=True,
-    )
 
     with st.sidebar:
         st.markdown('<p class="sidebar-brand">Navigation</p>', unsafe_allow_html=True)
@@ -135,6 +270,21 @@ def main() -> None:
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
 
+    nav_now = st.session_state.get("current_nav", "home")
+    st.title("Dokumenten-Organizer")
+    _render_payment_status_queue()
+    _render_monthly_expense_queue()
+    if nav_now == "home":
+        _render_home_dashboard()
+    else:
+        st.markdown(
+            '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
+            "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
+            "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
+            "</p></div>",
+            unsafe_allow_html=True,
+        )
+
     tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
 
     with tab_inbox:
@@ -162,6 +312,7 @@ def main() -> None:
                         else:
                             ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
                             st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
+                            _enqueue_payment_prompt(int(r["id"]))
                 st.rerun()
 
         st.divider()
@@ -183,6 +334,7 @@ def main() -> None:
                     else:
                         ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
                         st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
+                        _enqueue_payment_prompt(int(r["id"]))
         st.divider()
         pdfs = sorted(INBOX_DIR.glob("*.pdf")) if INBOX_DIR.exists() else []
         st.write(f"Aktuell **{len(pdfs)}** PDF(s) im Posteingang.")
@@ -260,6 +412,26 @@ def main() -> None:
                             zs or "offen", zs or "—"
                         )
                         st.write(f"**Zahlstatus:** {zlab}")
+                    if is_expense_monthly_prompt_candidate(ext):
+                        im = ext.get("include_monthly_expense")
+                        imlab = (
+                            "Noch nicht gewählt (zählt vorläufig mit)"
+                            if im is None
+                            else ("Ja, in Monatsausgaben" if int(im) == 1 else "Nein, nicht in Monatsausgaben")
+                        )
+                        st.write(f"**Monatsausgaben:** {imlab}")
+                        mce = st.radio(
+                            "Zu den monatlichen Ausgaben zählen?",
+                            (1, 0),
+                            index=0 if im is None or int(im) == 1 else 1,
+                            format_func=lambda x: "Ja" if x == 1 else "Nein",
+                            horizontal=True,
+                            key=f"mce_edit_{doc_id}",
+                        )
+                        if st.button("Monatsausgaben speichern", key=f"mce_save_{doc_id}"):
+                            set_include_monthly_expense(doc_id, int(mce))
+                            st.success("Gespeichert.")
+                            st.rerun()
                     try:
                         amounts = json.loads(ext["amounts_json"] or "[]")
                         if amounts:
@@ -290,6 +462,20 @@ def main() -> None:
                                 f"Automatischer Vorgang **#{am['matter_id']}** — {am['title']} "
                                 f"({am['linked_count']} Dokument(e) mit dieser Kennung)."
                             )
+                        ext2 = get_extraction(doc_id)
+                        if ext2:
+                            nk = _norm_kind(ext2.get("document_kind"))
+                            navf = ext2.get("nav_folder") or ""
+                            if (nk in ("invoice", "reminder", "payment_demand") or navf == "mahnungen") and not (
+                                ext2.get("zahlstatus") or ""
+                            ).strip():
+                                doc2 = get_document(doc_id)
+                                if doc2 and not (doc2.get("initial_zahlstatus") or "").strip():
+                                    _enqueue_payment_prompt(doc_id)
+                            if is_expense_monthly_prompt_candidate(ext2) and ext2.get(
+                                "include_monthly_expense"
+                            ) is None:
+                                _enqueue_monthly_expense_prompt(doc_id)
                         st.rerun()
                     except Exception as e:
                         st.error(str(e))
@@ -313,7 +499,7 @@ def main() -> None:
                     st.caption("Legen Sie zuerst einen Vorgang im Tab „Vorgänge“ an.")
 
                 show_pay_ui = ext and (
-                    ext.get("document_kind") in ("invoice", "reminder")
+                    ext.get("document_kind") in ("invoice", "reminder", "payment_demand")
                     or ext.get("nav_folder") in ("rechnungen", "mahnungen")
                 )
                 if show_pay_ui:
@@ -344,7 +530,9 @@ def main() -> None:
                         others = [
                             r
                             for r in all_docs
-                            if int(r["id"]) != doc_id and r.get("document_kind") in ("invoice", "reminder")
+                            if int(r["id"]) != doc_id
+                            and r.get("document_kind")
+                            in ("invoice", "reminder", "payment_demand")
                         ]
                         if others:
                             labels_map = {

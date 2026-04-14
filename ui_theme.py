@@ -125,6 +125,74 @@ def inject_neon_styles() -> None:
     font-size: 0.85rem;
     border: 1px solid rgba(251, 191, 36, 0.35);
   }
+
+  .neon-kpi-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 0.5rem 0 1.25rem 0;
+  }
+  .neon-kpi {
+    flex: 1 1 220px;
+    min-width: 200px;
+    border-radius: 16px;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid rgba(0, 245, 212, 0.22);
+    background: linear-gradient(155deg, rgba(18, 26, 42, 0.92) 0%, rgba(10, 14, 24, 0.88) 100%);
+    box-shadow:
+      0 0 32px rgba(0, 245, 212, 0.08),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .neon-kpi.magenta {
+    border-color: rgba(244, 114, 182, 0.35);
+    box-shadow:
+      0 0 36px rgba(244, 114, 182, 0.12),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .neon-kpi.gold {
+    border-color: rgba(251, 191, 36, 0.28);
+    box-shadow:
+      0 0 28px rgba(251, 191, 36, 0.1),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .neon-kpi-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 0.35rem;
+  }
+  .neon-kpi-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(100deg, #5eead4 0%, #67e8f9 50%, #a5f3fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 12px rgba(0, 245, 212, 0.35));
+  }
+  .neon-kpi.magenta .neon-kpi-value {
+    background: linear-gradient(100deg, #fda4af 0%, #f472b6 45%, #e879f9 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 14px rgba(244, 114, 182, 0.4));
+  }
+  .neon-kpi.gold .neon-kpi-value {
+    background: linear-gradient(100deg, #fde68a 0%, #fcd34d 50%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.35));
+  }
+  .neon-kpi-sub {
+    font-size: 0.82rem;
+    color: #8b9cb3;
+    margin-top: 0.4rem;
+    line-height: 1.35;
+  }
 </style>
         """,
         unsafe_allow_html=True,

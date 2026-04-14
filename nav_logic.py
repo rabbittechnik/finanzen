@@ -30,6 +30,7 @@ def _norm_kind(raw: str | None) -> str:
         "lohn": "payslip",
         "lohnabrechnung": "payslip",
         "gehaltsabrechnung": "payslip",
+        "zahlungsaufforderung": "payment_demand",
     }
     return aliases.get(k, k)
 
@@ -44,7 +45,7 @@ def nav_from_normalized(n: dict[str, Any]) -> tuple[str | None, str | None]:
     sender = (n.get("sender_name") or "").strip()
     util = (n.get("utility_provider_name") or "").strip() or sender or "Unbekannter Anbieter"
 
-    if kind == "reminder":
+    if kind in ("reminder", "payment_demand"):
         return ("mahnungen", None)
     if kind == "payslip" or cat == "payroll":
         return ("lohnabrechnungen", None)

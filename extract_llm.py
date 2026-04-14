@@ -25,8 +25,10 @@ Antworte NUR mit gültigem JSON (kein Markdown), exakt diesem Schema:
     "energy","legal","payroll","insurance","contract","telecom","housing_internet",
     "government","banking","health","other",
   "document_kind": one of
-    "invoice","reminder","payslip","insurance_policy","court","correspondence",
+    "invoice","reminder","payment_demand","payslip","insurance_policy","court","correspondence",
     "mobile_contract","home_telecom","utility_bill","other",
+  "primary_amount_eur": Hauptbetrag in EUR (zu zahlen / offene Forderung / Rechnungssumme) als Zahl oder null,
+  "payslip_net_income_eur": bei Lohnabrechnung Netto-Auszahlung an Arbeitnehmer in EUR oder null,
   "utility_provider_name": bei Strom-/Gas-/Energieanbieter der Firmenname für Ordner (string oder null),
   "sender_name": string oder null,
   "sender_role": one of
@@ -40,10 +42,15 @@ Antworte NUR mit gültigem JSON (kein Markdown), exakt diesem Schema:
   ],
   "summary_de": ein kurzer deutscher Satz (Inhalt für Nutzer)
 }
-document_kind: "invoice"=Rechnung, "reminder"=Mahnung/Inkasso, "payslip"=Lohnabrechnung, "insurance_policy"=Versicherungsschein/-police,
+document_kind: "invoice"=Rechnung, "reminder"=Mahnung/Inkasso, "payment_demand"=Zahlungsaufforderung (Anwalt/Kanzlei vor Klage),
+"payslip"=Lohnabrechnung, "insurance_policy"=Versicherungsschein/-police,
 "court"=Amtsgericht/Gericht, "correspondence"=Schriftverkehr, "mobile_contract"=Handyvertrag, "home_telecom"=Festnetz/Internet zu Hause,
 "utility_bill"=Energieabrechnung ohne klare Rechnung, "other".
-Bei Mahnung und zugehöriger Rechnung dieselbe invoice_number in reference_ids setzen, wenn im Text vorhanden.
+Aktenzeichen (case_reference) immer exakt und getrennt: dieselbe Kanzlei mit zwei verschiedenen Aktenzeichen = zwei verschiedene Vorgänge — nicht zusammenführen.
+document_date strikt aus dem Dokument (Ausstellungs-/Bescheiddatum), Format YYYY-MM-DD; chronologische Einordnung beachten.
+Bei Mahnung, Zahlungsaufforderung und zugehöriger Rechnung dieselbe invoice_number und/oder dasselbe Aktenzeichen in reference_ids setzen, wenn im Text vorhanden.
+primary_amount_eur: bei Forderungen/Mahnungen/Rechnungen den aktuell geforderten Hauptbetrag (nicht Nebenkosten doppeln).
+payslip_net_income_eur: nur bei payslip, Wert „Netto“/„Auszahlungsbetrag“ laut Abrechnung.
 Extrahiere alle sinnvollen Referenznummern/Kundennummern/Vertrags-/Rechnungs-/Aktenzeichen wörtlich wie im Text.
 """
 
@@ -112,6 +119,7 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
     allowed_doc_kind = {
         "invoice",
         "reminder",
+        "payment_demand",
         "payslip",
         "insurance_policy",
         "court",
@@ -132,6 +140,10 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
         doc_kind = "other"
     if doc_kind == "other" and role == "collection_agency":
         doc_kind = "reminder"
+    if doc_kind == "other" and role == "lawyer" and isinstance(data.get("subject"), str):
+        subjl = data["subject"].lower()
+        if "zahlungsaufforderung" in subjl:
+            doc_kind = "payment_demand"
     util_name = data.get("utility_provider_name")
     if util_name is not None:
         util_name = str(util_name).strip() or None
@@ -171,6 +183,16 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
         doc_date = str(doc_date)
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", doc_date):
             doc_date = None
+
+    def _pos_float(x: Any) -> float | None:
+        try:
+            v = float(x)
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    primary_eur = _pos_float(data.get("primary_amount_eur"))
+    payslip_net_eur = _pos_float(data.get("payslip_net_income_eur"))
     return {
         "category": cat,
         "document_kind": doc_kind,
@@ -182,6 +204,8 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
         "amounts": amounts,
         "reference_ids": clean_refs,
         "summary_de": (data.get("summary_de") or "").strip() or None,
+        "primary_amount_eur": primary_eur,
+        "payslip_net_income_eur": payslip_net_eur,
     }
 
 
@@ -202,4 +226,7 @@ def extraction_to_db_payload(normalized: dict[str, Any], raw_json: str) -> dict[
         "document_kind": normalized.get("document_kind"),
         "linked_payment_doc_id": None,
         "zahlstatus": None,
+        "primary_amount_eur": normalized.get("primary_amount_eur"),
+        "payslip_net_income_eur": normalized.get("payslip_net_income_eur"),
+        "include_monthly_expense": None,
     }

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from db import (
+    clear_document_initial_zahlstatus,
     create_matter,
     document_by_sha256,
     document_ids_for_reference_key,
@@ -15,6 +16,7 @@ from db import (
     insert_document,
     link_document_to_matter,
     try_auto_link_invoice_reminder,
+    try_auto_link_same_case_reference,
 )
 from ingest import archive_destination, extract_pdf_text, file_sha256, iter_inbox_pdfs
 
@@ -122,14 +124,23 @@ def run_llm_on_document(doc_id: int, *, auto_matter: bool = True) -> dict[str, A
     raw_json = json.dumps(normalized, ensure_ascii=False)
     payload = extraction_to_db_payload(normalized, raw_json)
     prev = get_extraction(doc_id)
+    prev_zs = (prev.get("zahlstatus") or "").strip() if prev else ""
     if prev:
         if prev.get("linked_payment_doc_id"):
             payload["linked_payment_doc_id"] = prev["linked_payment_doc_id"]
-        if prev.get("zahlstatus"):
+        if prev_zs:
             payload["zahlstatus"] = prev["zahlstatus"]
+        if prev.get("include_monthly_expense") is not None:
+            payload["include_monthly_expense"] = int(prev["include_monthly_expense"])
+    ini = (doc.get("initial_zahlstatus") or "").strip()
+    if not (payload.get("zahlstatus") or "").strip() and not prev_zs and ini in ("offen", "bezahlt"):
+        payload["zahlstatus"] = ini
     upsert_extraction(doc_id, **payload)
     replace_reference_keys(doc_id, payload["reference_ids"])
     try_auto_link_invoice_reminder(doc_id)
+    try_auto_link_same_case_reference(doc_id)
+    if ini in ("offen", "bezahlt") and not prev_zs:
+        clear_document_initial_zahlstatus(doc_id)
     matter_info: dict[str, Any] | None = None
     if auto_matter:
         matter_info = auto_assign_matter_from_extraction(doc_id)
