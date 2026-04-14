@@ -3,10 +3,15 @@
 Typischer Anbieter **Gmail**: ``DOCU_SMTP_HOST=smtp.gmail.com``, Port ``587``,
 ``DOCU_SMTP_USER`` / ``DOCU_SMTP_FROM`` = Gmail-Adresse, ``DOCU_SMTP_PASSWORD`` = Google-**App-Passwort**
 (nicht das normale Anmeldepasswort). Siehe README.
+
+Viele Hosting-Umgebungen haben keinen IPv6-Egress; ``smtplib`` wählt sonst oft zuerst IPv6,
+was zu ``[Errno 101] Network is unreachable`` führt. Deshalb werden Zieladressen
+standardmäßig **IPv4 vor IPv6** versucht. Optional: ``DOCU_SMTP_ADDRESS_FAMILY=ipv4`` nur IPv4.
 """
 from __future__ import annotations
 
 import os
+import socket
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -21,6 +26,37 @@ def smtp_configured() -> bool:
     )
 
 
+def _smtp_sockaddr_candidates(host: str, port: int) -> list[tuple]:
+    """Sockaddr-Tupel für TCP; IPv4 zuerst (reduziert ENETUNREACH ohne IPv6-Route)."""
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise OSError(f"SMTP: Hostname nicht auflösbar: {host!r}") from e
+    v4 = [item[4] for item in infos if item[0] == socket.AF_INET]
+    v6 = [item[4] for item in infos if item[0] == socket.AF_INET6]
+    fam = (os.environ.get("DOCU_SMTP_ADDRESS_FAMILY") or "").strip().lower()
+    if fam in ("4", "ipv4", "inet"):
+        return v4 or v6
+    if fam in ("6", "ipv6", "inet6"):
+        return v6 or v4
+    return v4 + v6
+
+
+def _raise_smtp_unreachable(host: str, port: int, last: BaseException | None) -> None:
+    hint = (
+        "Häufig: Server hat keine IPv6-Route; die App versucht IPv4 zuerst. "
+        "Falls es weiterhin scheitert: DOCU_SMTP_ADDRESS_FAMILY=ipv4 setzen oder "
+        "SMTP-Port/Firewall beim Hosting prüfen (ausgehend 587/465)."
+    )
+    if isinstance(last, OSError) and last.errno == 101:
+        raise OSError(
+            f"SMTP: Netzwerk nicht erreichbar für {host!r}:{port}. {hint}"
+        ) from last
+    if last is not None:
+        raise OSError(f"SMTP: Keine Verbindung zu {host!r}:{port}. {hint}") from last
+    raise OSError(f"SMTP: Keine Adresse für {host!r}:{port}.")
+
+
 def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
     """Versendet eine einfache Text-Mail (TLS/STARTTLS je nach Port)."""
     host = (os.environ.get("DOCU_SMTP_HOST") or "").strip()
@@ -29,6 +65,7 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
     password = "".join((os.environ.get("DOCU_SMTP_PASSWORD") or "").split())
     from_addr = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
     port = int((os.environ.get("DOCU_SMTP_PORT") or "587").strip() or "587")
+    timeout = float((os.environ.get("DOCU_SMTP_TIMEOUT") or "60").strip() or "60")
     if not (host and user and password and from_addr):
         raise RuntimeError("SMTP nicht vollständig konfiguriert (DOCU_SMTP_*).")
 
@@ -42,17 +79,111 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
     msg["To"] = to_addr
     msg.set_content(body or "")
 
+    candidates = _smtp_sockaddr_candidates(host, port)
+    if not candidates:
+        raise OSError(f"SMTP: Keine TCP-Adresse für {host!r}:{port}.")
+
+    last_err: BaseException | None = None
+    context = ssl.create_default_context()
+
     if port == 465:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(host, port, context=context) as smtp:
-            smtp.login(user, password)
-            smtp.send_message(msg)
+        for sockaddr in candidates:
+            smtp_ssl: smtplib.SMTP_SSL | None = None
+            plain: socket.socket | None = None
+            try:
+                plain = socket.create_connection(sockaddr, timeout=timeout)
+                try:
+                    tls_sock = context.wrap_socket(plain, server_hostname=host)
+                except Exception:
+                    try:
+                        plain.close()
+                    except OSError:
+                        pass
+                    raise
+                plain = None
+                try:
+                    smtp_ssl = smtplib.SMTP_SSL(host="", port=0, context=context, timeout=timeout)
+                except Exception:
+                    try:
+                        tls_sock.close()
+                    except OSError:
+                        pass
+                    raise
+                smtp_ssl._host = host
+                smtp_ssl.sock = tls_sock
+                smtp_ssl.file = tls_sock.makefile("rb")
+                code, _intro = smtp_ssl.getreply()
+                if code != 220:
+                    raise smtplib.SMTPConnectError(code, _intro)
+                smtp_ssl.login(user, password)
+                smtp_ssl.send_message(msg)
+                try:
+                    smtp_ssl.quit()
+                except Exception:
+                    pass
+                smtp_ssl = None
+                return
+            except smtplib.SMTPAuthenticationError:
+                if smtp_ssl is not None:
+                    try:
+                        smtp_ssl.close()
+                    except OSError:
+                        pass
+                raise
+            except OSError as e:
+                last_err = e
+            except smtplib.SMTPException as e:
+                last_err = e
+            finally:
+                if plain is not None:
+                    try:
+                        plain.close()
+                    except OSError:
+                        pass
+                if smtp_ssl is not None:
+                    try:
+                        smtp_ssl.close()
+                    except OSError:
+                        pass
+        _raise_smtp_unreachable(host, port, last_err)
         return
 
-    with smtplib.SMTP(host, port, timeout=60) as smtp:
-        smtp.ehlo()
-        context = ssl.create_default_context()
-        smtp.starttls(context=context)
-        smtp.ehlo()
-        smtp.login(user, password)
-        smtp.send_message(msg)
+    for sockaddr in candidates:
+        smtp_plain: smtplib.SMTP | None = None
+        try:
+            smtp_plain = smtplib.SMTP(timeout=timeout)
+            smtp_plain._host = host
+            smtp_plain.sock = socket.create_connection(sockaddr, timeout=timeout)
+            smtp_plain.file = smtp_plain.sock.makefile("rb")
+            code, _intro = smtp_plain.getreply()
+            if code != 220:
+                raise smtplib.SMTPConnectError(code, _intro)
+            smtp_plain.ehlo()
+            smtp_plain.starttls(context=context)
+            smtp_plain.ehlo()
+            smtp_plain.login(user, password)
+            smtp_plain.send_message(msg)
+            try:
+                smtp_plain.quit()
+            except Exception:
+                pass
+            smtp_plain = None
+            return
+        except smtplib.SMTPAuthenticationError:
+            if smtp_plain is not None:
+                try:
+                    smtp_plain.close()
+                except OSError:
+                    pass
+            raise
+        except OSError as e:
+            last_err = e
+        except smtplib.SMTPException as e:
+            last_err = e
+        finally:
+            if smtp_plain is not None:
+                try:
+                    smtp_plain.close()
+                except OSError:
+                    pass
+    _raise_smtp_unreachable(host, port, last_err)

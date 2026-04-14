@@ -210,18 +210,37 @@ def inject_neon_styles() -> None:
     margin-bottom: 0.75rem;
   }
 
-  /* Haupt-Layout: linke Spalte scrollt intern; Chat-Spalte bleibt im sichtbaren Bereich */
-  div[data-testid="stHorizontalBlock"]:has([data-testid="stChatInput"]) > div[data-testid="column"]:first-child {
+  /* Haupt-Layout: Marker in der Mittelspalte (Chat an/aus), nicht von stChatInput abhängig */
+  div[data-testid="stHorizontalBlock"]:has([data-docu-main-chat-layout]) > div[data-testid="column"]:first-child {
     max-height: calc(100dvh - 5rem);
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 0.35rem;
     scrollbar-gutter: stable;
   }
-  div[data-testid="stHorizontalBlock"]:has([data-testid="stChatInput"]) > div[data-testid="column"]:last-child {
+  div[data-testid="stHorizontalBlock"]:has([data-docu-main-chat-layout]) > div[data-testid="column"]:last-child {
     max-height: calc(100dvh - 5rem);
     overflow: hidden;
     align-self: flex-start;
+  }
+  div[data-testid="stHorizontalBlock"]:has([data-docu-main-single-col]) > div[data-testid="column"]:first-child {
+    max-height: calc(100dvh - 5rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    scrollbar-gutter: stable;
+  }
+
+  /* Quick-Leiste oben in der Mittelspalte (Update / Testmail / KI) */
+  div[data-testid="stHorizontalBlock"]:has([data-docu-quick-actions="1"]) {
+    position: sticky;
+    top: 2.75rem;
+    z-index: 50;
+    background: rgba(7, 10, 18, 0.96);
+    backdrop-filter: blur(8px);
+    padding: 0.35rem 0 0.5rem;
+    margin: 0 0 0.35rem 0;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.28);
   }
 
   .dash-main-title {
@@ -284,6 +303,10 @@ def inject_neon_styles() -> None:
     font-size: 0.92rem;
     color: #cbd5e1;
     line-height: 1.35;
+  }
+  /* Tabellenzeilen: Details-Spalte oben bündig mit Kachel */
+  div[data-testid="stHorizontalBlock"]:has(.dash-tile-inner) div[data-testid="column"] {
+    align-self: start;
   }
   .dash-tile-note {
     font-size: 0.75rem !important;

@@ -82,8 +82,11 @@ Google erlaubt SMTP nur mit **App-Passwort** (wenn die Bestätigung in zwei Schr
 | `DOCU_SMTP_USER` | Deine vollständige Gmail-Adresse |
 | `DOCU_SMTP_PASSWORD` | **16-stelliges App-Passwort** (kein normales Google-Passwort) |
 | `DOCU_SMTP_FROM` | Meist dieselbe Adresse wie `DOCU_SMTP_USER` |
+| `DOCU_SMTP_TIMEOUT` | Optional: Timeout in Sekunden (Standard `60`) |
+| `DOCU_SMTP_ADDRESS_FAMILY` | Optional: `ipv4` oder `ipv6` — bei Fehler **„Network is unreachable“** (errno 101) hilft oft `ipv4`, wenn der Server keine IPv6-Route nach außen hat |
 
 **Railway:** dieselben fünf Variablen unter **Variables** setzen; danach neu deployen bzw. Dienst neu starten.
+
 | `DOCU_JSON_LOGS` | `1` / `true`: strukturierte Log-Zeilen auf stdout (Railway) |
 | `DOCU_PWA_NOTIFY` | `1` / `true`: nach KI-Analyse Browser-**Notification** (nur wenn Nutzer die Berechtigung erteilt hat) |
 | `DOCU_ENABLE_OCR` | `1` / `true`: bei sehr wenig PDF-Text optional Tesseract versuchen (benötigt `pytesseract`, `pdf2image`, installiertes **Tesseract** und unter Windows **Poppler**) |

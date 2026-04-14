@@ -233,13 +233,15 @@ def _render_monthly_expense_queue() -> None:
             st.rerun()
 
 
-def _render_sidebar_update_button() -> None:
-    """Vollständiger Browser-Reload — wie „Update“ im Werkstatt-Programm (neue Version vom Server)."""
-    st.caption("Nach Deploy: Seite neu laden.")
+def _render_reload_button(button_id: str, *, show_caption: bool = True, height: int = 52) -> None:
+    """Vollständiger Browser-Reload (HTML-Button wegen zuverlässigem Voll-Reload)."""
+    if show_caption:
+        st.caption("Nach Deploy: Seite neu laden.")
+    safe_id = "".join(c for c in button_id if c.isalnum() or c in ("-", "_"))
     components.html(
-        """
+        f"""
 <div style="font-family:system-ui,sans-serif;margin:0;">
-  <button type="button" id="docu-app-reload-btn" title="Neueste Version vom Server laden"
+  <button type="button" id="{safe_id}" title="Neueste Version vom Server laden"
     style="width:100%;padding:0.45rem 0.65rem;border-radius:10px;cursor:pointer;font-weight:600;
     font-size:0.9rem;color:#e2e8f0;background:#1e293b;border:1px solid rgba(148,163,184,0.4);
     box-shadow:0 1px 3px rgba(0,0,0,0.25);">
@@ -247,18 +249,82 @@ def _render_sidebar_update_button() -> None:
   </button>
 </div>
 <script>
-(function(){
-  var b = document.getElementById('docu-app-reload-btn');
+(function(){{
+  var b = document.getElementById({json.dumps(safe_id)});
   if (!b) return;
-  b.addEventListener('click', function(){
-    try { (window.top || window.parent || window).location.reload(); }
-    catch(e) { window.location.reload(); }
-  });
-})();
+  b.addEventListener('click', function(){{
+    try {{ (window.top || window.parent || window).location.reload(); }}
+    catch(e) {{ window.location.reload(); }}
+  }});
+}})();
 </script>
         """,
-        height=52,
+        height=height,
     )
+
+
+def _render_sidebar_update_button() -> None:
+    """Sidebar: Reload-Button."""
+    _render_reload_button("docu-app-reload-btn", show_caption=True)
+
+
+def _render_smtp_testmail_button(
+    *, button_key: str, label: str, use_full_width: bool
+) -> None:
+    if not smtp_configured():
+        return
+    if st.button(
+        label,
+        key=button_key,
+        type="secondary",
+        use_container_width=use_full_width,
+    ):
+        frm = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
+        if not frm:
+            st.error("`DOCU_SMTP_FROM` fehlt in der Umgebung.")
+        else:
+            try:
+                with st.spinner("Sende Testmail …"):
+                    send_email_smtp(
+                        to_addr=frm,
+                        subject="Docu-Organizer — SMTP-Test",
+                        body=(
+                            "Hallo,\n\n"
+                            "dies ist eine automatische Testmail aus dem Dokumenten-Organizer "
+                            "(Testmail-Button).\n\n"
+                            "Wenn du diese Nachricht liest, funktioniert SMTP (z. B. Gmail) korrekt.\n\n"
+                            "— Docu-Organizer (Test)\n"
+                        ),
+                    )
+                st.success(f"Testmail gesendet an: {frm}")
+            except Exception as e:
+                st.error(str(e))
+
+
+def _render_main_quick_bar() -> None:
+    """Oben in der Mittelspalte: Update, Testmail, KI-Panel-Toggle."""
+    q1, q2, q3, q4 = st.columns([1.15, 1.15, 1.35, 3.5], gap="small")
+    with q1:
+        st.markdown(
+            '<span data-docu-quick-actions="1" aria-hidden="true" '
+            'style="position:absolute;width:0;height:0;overflow:hidden"></span>',
+            unsafe_allow_html=True,
+        )
+        _render_reload_button("docu-app-reload-btn-main", show_caption=False, height=44)
+    with q2:
+        _render_smtp_testmail_button(
+            button_key="main_smtp_test_mail",
+            label="Testmail",
+            use_full_width=True,
+        )
+    with q3:
+        st.toggle(
+            "KI-Panel",
+            key="docu_show_chat_panel",
+            help="Rechtes Chat-Panel ein- oder ausblenden.",
+        )
+    with q4:
+        st.caption("Schnellzugriff — dieselben Aktionen finden sich auch in der **linken Sidebar**.")
 
 
 def _render_sidebar_pdf_upload() -> None:
@@ -537,31 +603,11 @@ def main() -> None:
         if smtp_configured():
             st.markdown("**E-Mail (SMTP)**")
             st.caption("Sendet eine kurze Testmail an **DOCU_SMTP_FROM** (meist deine eigene Adresse).")
-            if st.button(
-                "Testmail an mich senden",
-                key="sidebar_smtp_test_mail",
-                use_container_width=True,
-            ):
-                frm = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
-                if not frm:
-                    st.error("`DOCU_SMTP_FROM` fehlt in der Umgebung.")
-                else:
-                    try:
-                        with st.spinner("Sende Testmail …"):
-                            send_email_smtp(
-                                to_addr=frm,
-                                subject="Docu-Organizer — SMTP-Test",
-                                body=(
-                                    "Hallo,\n\n"
-                                    "dies ist eine automatische Testmail aus dem Dokumenten-Organizer "
-                                    "(Sidebar-Button „Testmail an mich senden“).\n\n"
-                                    "Wenn du diese Nachricht liest, funktioniert SMTP (z. B. Gmail) korrekt.\n\n"
-                                    "— Docu-Organizer (Test)\n"
-                                ),
-                            )
-                        st.success(f"Testmail gesendet an: {frm}")
-                    except Exception as e:
-                        st.error(str(e))
+            _render_smtp_testmail_button(
+                button_key="sidebar_smtp_test_mail",
+                label="Testmail an mich senden",
+                use_full_width=True,
+            )
         st.divider()
         st.checkbox(
             "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
@@ -665,9 +711,33 @@ def main() -> None:
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
 
-    # Etwas breiterer KI-Block rechts (vorher zu schmal für Eingabe + Aktionen)
-    main_c, chat_c = st.columns([1.68, 1.28], gap="medium")
+    if "docu_show_chat_panel" not in st.session_state:
+        st.session_state.docu_show_chat_panel = True
+    show_chat_panel = bool(st.session_state.docu_show_chat_panel)
+
+    if show_chat_panel:
+        main_c, chat_c = st.columns([1.68, 1.28], gap="medium")
+    else:
+        main_c = st.columns([1.0])[0]
+        chat_c = None
+
     with main_c:
+        if show_chat_panel:
+            st.markdown(
+                '<div data-docu-main-chat-layout aria-hidden="true" '
+                'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div data-docu-main-single-col aria-hidden="true" '
+                'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
+                unsafe_allow_html=True,
+            )
+        _render_main_quick_bar()
+        if not show_chat_panel:
+            st.caption("KI-Panel ist aus — **KI-Panel** oben aktivieren, um den Chat wieder anzuzeigen.")
+
         nav_now = st.session_state.get("current_nav", "home")
         if nav_now != "home":
             st.title("Dokumenten-Organizer")
@@ -1092,10 +1162,9 @@ def main() -> None:
                             unlink_document_from_matter(int(d["id"]), int(m["id"]))
                             st.rerun()
     
-    
-
-    with chat_c:
-        _render_assistant_chat()
+    if chat_c is not None:
+        with chat_c:
+            _render_assistant_chat()
 
 if __name__ == "__main__":
     main()
