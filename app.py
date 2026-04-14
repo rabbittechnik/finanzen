@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -80,6 +81,34 @@ ROLE_DE = {
 
 def _fmt_de_eur(v: float) -> str:
     return f"{v:.2f} €".replace(".", ",")
+
+
+def _render_document_download(doc: dict[str, Any], *, key_prefix: str) -> None:
+    """Original-PDF (bzw. gespeicherte Datei) als Download anbieten."""
+    did = int(doc["id"])
+    sp = (doc.get("stored_path") or "").strip()
+    if not sp:
+        st.caption("Kein Dateipfad gespeichert.")
+        return
+    path = Path(sp)
+    if not path.is_file():
+        st.caption("Datei auf dem Server nicht gefunden.")
+        return
+    try:
+        data = path.read_bytes()
+    except OSError:
+        st.warning("Datei konnte nicht gelesen werden.")
+        return
+    fn = doc.get("original_filename") or path.name
+    mime = "application/pdf" if fn.lower().endswith(".pdf") else "application/octet-stream"
+    st.download_button(
+        "Original herunterladen",
+        data=data,
+        file_name=fn,
+        mime=mime,
+        key=f"{key_prefix}_dl_{did}",
+        use_container_width=True,
+    )
 
 
 def _enqueue_payment_prompt(doc_id: int) -> None:
@@ -654,6 +683,7 @@ def main() -> None:
     
                 with c2:
                     st.markdown("#### Aktionen")
+                    _render_document_download(doc, key_prefix="tabdoc")
                     if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
                         st.session_state[PENDING_LLM_KEY] = {
                             "phase": 1,
@@ -783,6 +813,7 @@ def main() -> None:
                             f"{CATEGORY_DE.get(d.get('category') or '', d.get('category') or '—')} · "
                             f"{ROLE_DE.get(d.get('sender_role') or '', d.get('sender_role') or '—')}"
                         )
+                        _render_document_download(d, key_prefix=f"matter{m['id']}")
                         if st.button("Entknüpfen", key=f"um_{m['id']}_{d['id']}"):
                             unlink_document_from_matter(int(d["id"]), int(m["id"]))
                             st.rerun()
