@@ -515,14 +515,14 @@ def main() -> None:
                 else:
                     id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
                     choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
-            doc_id = id_opts[choice]
-            doc = get_document(doc_id)
-            ext = get_extraction(doc_id)
-            if st.session_state.get("docu_show_llm_ok") == doc_id:
-                st.success("Analyse gespeichert — Details im **KI-Chat** rechts.")
-                del st.session_state["docu_show_llm_ok"]
+                doc_id = id_opts[choice]
+                doc = get_document(doc_id)
+                ext = get_extraction(doc_id)
+                if st.session_state.get("docu_show_llm_ok") == doc_id:
+                    st.success("Analyse gespeichert — Details im **KI-Chat** rechts.")
+                    del st.session_state["docu_show_llm_ok"]
 
-            c1, c2 = st.columns(2)
+                c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("#### Metadaten")
                     st.write(f"**Datei:** {doc['original_filename']}")
