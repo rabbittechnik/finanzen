@@ -3,7 +3,22 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("DOCU_DATA_DIR", str(BASE_DIR / "data")))
+
+
+def _default_data_dir() -> Path:
+    """
+    Lokal: ./data unter dem Projektordner.
+    Railway: Standard ist das gemountete Volume ``/dokumente`` (bleibt bei Deploys/Upgrades erhalten),
+    sofern ``DOCU_DATA_DIR`` nicht gesetzt ist.
+    """
+    if os.environ.get("DOCU_DATA_DIR"):
+        return Path(os.environ["DOCU_DATA_DIR"])
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID"):
+        return Path("/dokumente")
+    return BASE_DIR / "data"
+
+
+DATA_DIR = _default_data_dir()
 INBOX_DIR = DATA_DIR / "inbox"
 ARCHIVE_DIR = DATA_DIR / "archive"
 DB_PATH = Path(os.environ.get("DOCU_DB_PATH", str(DATA_DIR / "documents.db")))

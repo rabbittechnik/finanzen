@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import defaultdict
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
 from ingest import save_uploaded_pdf_to_inbox
 from db import (
+    clear_payment_link,
     create_matter,
     documents_for_matter,
     find_documents_sharing_keys,
@@ -18,10 +20,14 @@ from db import (
     init_db,
     link_document_to_matter,
     list_documents,
+    list_documents_for_nav,
     list_matters,
     matter_ids_for_document,
+    set_payment_link_pair,
+    set_zahlstatus_linked,
     unlink_document_from_matter,
 )
+from nav_logic import NAV_KEYS_ORDER, NAV_LABELS
 from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
@@ -67,6 +73,8 @@ def main() -> None:
     init_db()
     if "auto_matter_after_llm" not in st.session_state:
         st.session_state.auto_matter_after_llm = True
+    if "current_nav" not in st.session_state:
+        st.session_state.current_nav = "home"
     maybe_show_home_overlay()
 
     st.title("Dokumenten-Organizer")
@@ -79,10 +87,25 @@ def main() -> None:
     )
 
     with st.sidebar:
+        st.markdown('<p class="sidebar-brand">Navigation</p>', unsafe_allow_html=True)
+        nav_options = list(NAV_KEYS_ORDER)
+        nav_display = [NAV_LABELS[k] for k in nav_options]
+        picked = st.radio(
+            "Bereich",
+            nav_options,
+            format_func=lambda k: NAV_LABELS[k],
+            key="sidebar_nav_choice",
+            label_visibility="collapsed",
+        )
+        st.session_state.current_nav = picked
+        st.caption(
+            "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
+            "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner)."
+        )
+        st.divider()
         st.markdown(
-            '<p class="sidebar-brand">Organizer</p>'
             '<p class="sidebar-muted">Deine Unterlagen bleiben auf diesem Server. '
-            "Zum Einlesen einfach PDFs oben hochladen oder den Posteingang nutzen.</p>",
+            "Zum Einlesen PDFs im Tab **Posteingang** hochladen.</p>",
             unsafe_allow_html=True,
         )
         st.divider()
@@ -165,13 +188,27 @@ def main() -> None:
         st.write(f"Aktuell **{len(pdfs)}** PDF(s) im Posteingang.")
 
     with tab_docs:
-        st.subheader("Alle Dokumente")
-        rows = list_documents()
+        nav_key = st.session_state.get("current_nav", "home")
+        st.subheader(NAV_LABELS.get(nav_key, "Dokumente"))
+        rows = list_documents_for_nav(nav_key if nav_key != "home" else None)
         if not rows:
-            st.info("Noch keine Dokumente. Importieren Sie PDFs im Tab Posteingang.")
+            st.info("Noch keine Dokumente in diesem Bereich. Import im Tab Posteingang, dann KI-Analyse.")
         else:
-            id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
-            choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
+            if nav_key == "stromanbieter":
+                by_sub: dict[str | None, list] = defaultdict(list)
+                for r in rows:
+                    by_sub[r.get("folder_sub")].append(r)
+                ordered = sorted(by_sub.keys(), key=lambda x: (x is None, (x or "")))
+                id_opts: dict[str, int] = {}
+                for sub in ordered:
+                    label = sub if sub else "Ohne Anbietername"
+                    st.markdown(f"**{label}**")
+                    for r in sorted(by_sub[sub], key=lambda x: -int(x["id"])):
+                        id_opts[f'#{r["id"]} — {r["original_filename"]}'] = r["id"]
+                choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
+            else:
+                id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
+                choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
             doc_id = id_opts[choice]
             doc = get_document(doc_id)
             ext = get_extraction(doc_id)
@@ -190,6 +227,14 @@ def main() -> None:
                         "Optional später OCR (z. B. Tesseract) ergänzen."
                     )
                 if ext:
+                    nf = ext.get("nav_folder")
+                    fs = ext.get("folder_sub")
+                    ablage = NAV_LABELS.get(nf, nf or "—")
+                    if fs:
+                        ablage = f"{ablage} → **{fs}**"
+                    st.markdown(f"**Ablage:** {ablage}")
+                    dk = ext.get("document_kind") or "—"
+                    st.write(f"**Dokumentart (KI):** {dk}")
                     st.write(
                         f"**Kategorie:** {CATEGORY_DE.get(ext['category'], ext['category'])}"
                     )
@@ -198,6 +243,23 @@ def main() -> None:
                     st.write(f"**Betreff:** {ext['subject'] or '—'}")
                     st.write(f"**Datum:** {ext['document_date'] or '—'}")
                     st.write(f"**Kurzfassung:** {ext['summary_de'] or '—'}")
+                    partner_id = ext.get("linked_payment_doc_id")
+                    if partner_id:
+                        pdoc = get_document(int(partner_id))
+                        pname = pdoc["original_filename"] if pdoc else "?"
+                        kind = (ext.get("document_kind") or "").lower()
+                        if kind == "invoice":
+                            st.info(f"**Verknüpfte Mahnung:** #{int(partner_id)} — {pname}")
+                        elif kind == "reminder":
+                            st.info(f"**Verknüpfte Rechnung:** #{int(partner_id)} — {pname}")
+                        else:
+                            st.info(f"**Zahlstatus-Partner:** #{int(partner_id)} — {pname}")
+                    zs = ext.get("zahlstatus")
+                    if zs or partner_id:
+                        zlab = {"offen": "Offen", "bezahlt": "Bezahlt / erledigt"}.get(
+                            zs or "offen", zs or "—"
+                        )
+                        st.write(f"**Zahlstatus:** {zlab}")
                     try:
                         amounts = json.loads(ext["amounts_json"] or "[]")
                         if amounts:
@@ -249,6 +311,55 @@ def main() -> None:
                             st.rerun()
                 else:
                     st.caption("Legen Sie zuerst einen Vorgang im Tab „Vorgänge“ an.")
+
+                show_pay_ui = ext and (
+                    ext.get("document_kind") in ("invoice", "reminder")
+                    or ext.get("nav_folder") in ("rechnungen", "mahnungen")
+                )
+                if show_pay_ui:
+                    st.markdown("#### Rechnung ↔ Mahnung (Zahlstatus)")
+                    if ext.get("linked_payment_doc_id"):
+                        status_val = ext.get("zahlstatus") or "offen"
+                        opts = ["offen", "bezahlt"]
+                        labels = {"offen": "Offen", "bezahlt": "Bezahlt (Rechnung) / Erledigt (Mahnung)"}
+                        idx = opts.index(status_val) if status_val in opts else 0
+                        new_status = st.radio(
+                            "Gemeinsamer Zahlstatus",
+                            opts,
+                            index=idx,
+                            format_func=lambda x: labels[x],
+                            key=f"paystat_{doc_id}",
+                            horizontal=True,
+                        )
+                        if st.button("Zahlstatus speichern", key=f"save_pay_{doc_id}"):
+                            if new_status != status_val:
+                                set_zahlstatus_linked(doc_id, new_status)
+                                st.success("Gespeichert.")
+                                st.rerun()
+                        if st.button("Verknüpfung aufheben", key=f"unlink_pay_{doc_id}"):
+                            clear_payment_link(doc_id)
+                            st.rerun()
+                    else:
+                        all_docs = list_documents()
+                        others = [
+                            r
+                            for r in all_docs
+                            if int(r["id"]) != doc_id and r.get("document_kind") in ("invoice", "reminder")
+                        ]
+                        if others:
+                            labels_map = {
+                                f'#{r["id"]} — {r["original_filename"]} ({r.get("document_kind")})': int(
+                                    r["id"]
+                                )
+                                for r in others
+                            }
+                            pick = st.selectbox("Partner-Dokument", list(labels_map.keys()), key=f"ppick_{doc_id}")
+                            if st.button("Verknüpfen (gemeinsamer Zahlstatus)", key=f"plink_{doc_id}"):
+                                set_payment_link_pair(doc_id, labels_map[pick])
+                                st.success("Verknüpft — Zahlstatus zunächst **Offen**.")
+                                st.rerun()
+                        else:
+                            st.caption("Kein weiteres Dokument mit Art Rechnung/Mahnung vorhanden.")
 
                 st.markdown("#### Mögliche zusammenhängende Dokumente")
                 related = find_documents_sharing_keys(doc_id)

@@ -11,8 +11,10 @@ from db import (
     document_by_sha256,
     document_ids_for_reference_key,
     find_matter_for_reference_key,
+    get_extraction,
     insert_document,
     link_document_to_matter,
+    try_auto_link_invoice_reminder,
 )
 from ingest import archive_destination, extract_pdf_text, file_sha256, iter_inbox_pdfs
 
@@ -119,8 +121,15 @@ def run_llm_on_document(doc_id: int, *, auto_matter: bool = True) -> dict[str, A
     normalized = extract_document_fields(text)
     raw_json = json.dumps(normalized, ensure_ascii=False)
     payload = extraction_to_db_payload(normalized, raw_json)
+    prev = get_extraction(doc_id)
+    if prev:
+        if prev.get("linked_payment_doc_id"):
+            payload["linked_payment_doc_id"] = prev["linked_payment_doc_id"]
+        if prev.get("zahlstatus"):
+            payload["zahlstatus"] = prev["zahlstatus"]
     upsert_extraction(doc_id, **payload)
     replace_reference_keys(doc_id, payload["reference_ids"])
+    try_auto_link_invoice_reminder(doc_id)
     matter_info: dict[str, Any] | None = None
     if auto_matter:
         matter_info = auto_assign_matter_from_extraction(doc_id)

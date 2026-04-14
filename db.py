@@ -15,6 +15,20 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _migrate_extractions_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(extractions)").fetchall()
+    existing = {str(r[1]) for r in rows}
+    for col, decl in (
+        ("nav_folder", "TEXT"),
+        ("folder_sub", "TEXT"),
+        ("document_kind", "TEXT"),
+        ("linked_payment_doc_id", "INTEGER"),
+        ("zahlstatus", "TEXT"),
+    ):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE extractions ADD COLUMN {col} {decl}")
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
@@ -73,6 +87,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_ref_keys_doc ON reference_keys(document_id);
             """
         )
+        _migrate_extractions_columns(conn)
         conn.commit()
 
 
@@ -129,11 +144,33 @@ def list_documents() -> list[dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date
+            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
+                e.nav_folder, e.folder_sub, e.document_kind,
+                e.linked_payment_doc_id, e.zahlstatus
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
             ORDER BY d.id DESC
             """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_documents_for_nav(nav_key: str | None) -> list[dict[str, Any]]:
+    """Filter by sidebar folder; ``home`` or empty = all documents."""
+    if not nav_key or nav_key == "home":
+        return list_documents()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
+                e.nav_folder, e.folder_sub, e.document_kind,
+                e.linked_payment_doc_id, e.zahlstatus
+            FROM documents d
+            LEFT JOIN extractions e ON e.document_id = d.id
+            WHERE IFNULL(e.nav_folder, '') = ?
+            ORDER BY (e.folder_sub IS NULL), e.folder_sub, d.id DESC
+            """,
+            (nav_key,),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -164,6 +201,11 @@ def upsert_extraction(
     reference_ids: list[dict],
     summary_de: str | None,
     raw_json: str,
+    nav_folder: str | None = None,
+    folder_sub: str | None = None,
+    document_kind: str | None = None,
+    linked_payment_doc_id: int | None = None,
+    zahlstatus: str | None = None,
 ) -> None:
     created = _utc_now()
     amounts_json = json.dumps(amounts, ensure_ascii=False)
@@ -172,8 +214,9 @@ def upsert_extraction(
         conn.execute(
             """
             INSERT INTO extractions (document_id, category, sender_name, sender_role, subject,
-                document_date, amounts_json, reference_ids_json, summary_de, raw_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                document_date, amounts_json, reference_ids_json, summary_de, raw_json, created_at,
+                nav_folder, folder_sub, document_kind, linked_payment_doc_id, zahlstatus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(document_id) DO UPDATE SET
                 category = excluded.category,
                 sender_name = excluded.sender_name,
@@ -184,7 +227,12 @@ def upsert_extraction(
                 reference_ids_json = excluded.reference_ids_json,
                 summary_de = excluded.summary_de,
                 raw_json = excluded.raw_json,
-                created_at = excluded.created_at
+                created_at = excluded.created_at,
+                nav_folder = excluded.nav_folder,
+                folder_sub = excluded.folder_sub,
+                document_kind = excluded.document_kind,
+                linked_payment_doc_id = excluded.linked_payment_doc_id,
+                zahlstatus = excluded.zahlstatus
             """,
             (
                 document_id,
@@ -198,6 +246,11 @@ def upsert_extraction(
                 summary_de,
                 raw_json,
                 created,
+                nav_folder,
+                folder_sub,
+                document_kind,
+                linked_payment_doc_id,
+                zahlstatus,
             ),
         )
 
@@ -333,3 +386,89 @@ def find_matter_for_reference_key(id_type: str, key_value: str) -> int | None:
             (id_type, key_value),
         ).fetchone()
         return int(row["matter_id"]) if row else None
+
+
+def set_payment_link_pair(doc_a: int, doc_b: int) -> None:
+    """Rechnung ↔ Mahnung: gemeinsamer Zahlstatus; beide Zeilen verweisen aufeinander."""
+    if doc_a == doc_b:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE extractions SET linked_payment_doc_id = ?, zahlstatus = CASE
+                WHEN zahlstatus IS NULL OR zahlstatus = '' THEN 'offen' ELSE zahlstatus END
+            WHERE document_id = ?
+            """,
+            (doc_b, doc_a),
+        )
+        conn.execute(
+            """
+            UPDATE extractions SET linked_payment_doc_id = ?, zahlstatus = CASE
+                WHEN zahlstatus IS NULL OR zahlstatus = '' THEN 'offen' ELSE zahlstatus END
+            WHERE document_id = ?
+            """,
+            (doc_a, doc_b),
+        )
+
+
+def clear_payment_link(doc_id: int) -> None:
+    ext = get_extraction(doc_id)
+    if not ext or not ext.get("linked_payment_doc_id"):
+        return
+    partner = int(ext["linked_payment_doc_id"])
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE extractions SET linked_payment_doc_id = NULL WHERE document_id IN (?, ?)",
+            (doc_id, partner),
+        )
+
+
+def set_zahlstatus_linked(doc_id: int, status: str) -> None:
+    """Setzt Zahlstatus auf beiden verknüpften Dokumenten (Rechnung + Mahnung)."""
+    if status not in ("offen", "bezahlt"):
+        return
+    ext = get_extraction(doc_id)
+    if not ext:
+        return
+    partner = ext.get("linked_payment_doc_id")
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE extractions SET zahlstatus = ? WHERE document_id = ?",
+            (status, doc_id),
+        )
+        if partner is not None:
+            conn.execute(
+                "UPDATE extractions SET zahlstatus = ? WHERE document_id = ?",
+                (status, int(partner)),
+            )
+
+
+def try_auto_link_invoice_reminder(doc_id: int) -> None:
+    """Gleiche Rechnungsnummer in reference_keys + eine Rechnung / eine Mahnung → automatisch verknüpfen."""
+    from nav_logic import _norm_kind
+
+    ext = get_extraction(doc_id)
+    if not ext or ext.get("linked_payment_doc_id"):
+        return
+    my_kind = _norm_kind(ext.get("document_kind"))
+    if my_kind not in ("invoice", "reminder"):
+        return
+    partner_kind = "reminder" if my_kind == "invoice" else "invoice"
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key_value FROM reference_keys WHERE document_id = ? AND id_type = ?",
+            (doc_id, "invoice_number"),
+        ).fetchall()
+    for r in rows:
+        val = str(r["key_value"] or "").strip()
+        if not val:
+            continue
+        for oid in document_ids_for_reference_key("invoice_number", val):
+            if oid == doc_id:
+                continue
+            oext = get_extraction(oid)
+            if not oext or oext.get("linked_payment_doc_id"):
+                continue
+            if _norm_kind(oext.get("document_kind")) == partner_kind:
+                set_payment_link_pair(doc_id, oid)
+                return

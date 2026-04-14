@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from config import LLM_TEXT_CHAR_LIMIT, OPENAI_MODEL
+from nav_logic import nav_from_normalized
 
 load_dotenv()
 
@@ -23,6 +24,10 @@ Antworte NUR mit gültigem JSON (kein Markdown), exakt diesem Schema:
   "category": one of
     "energy","legal","payroll","insurance","contract","telecom","housing_internet",
     "government","banking","health","other",
+  "document_kind": one of
+    "invoice","reminder","payslip","insurance_policy","court","correspondence",
+    "mobile_contract","home_telecom","utility_bill","other",
+  "utility_provider_name": bei Strom-/Gas-/Energieanbieter der Firmenname für Ordner (string oder null),
   "sender_name": string oder null,
   "sender_role": one of
     "utility","lawyer","employer","insurer","telco","landlord","bank","government","collection_agency","other",
@@ -35,6 +40,10 @@ Antworte NUR mit gültigem JSON (kein Markdown), exakt diesem Schema:
   ],
   "summary_de": ein kurzer deutscher Satz (Inhalt für Nutzer)
 }
+document_kind: "invoice"=Rechnung, "reminder"=Mahnung/Inkasso, "payslip"=Lohnabrechnung, "insurance_policy"=Versicherungsschein/-police,
+"court"=Amtsgericht/Gericht, "correspondence"=Schriftverkehr, "mobile_contract"=Handyvertrag, "home_telecom"=Festnetz/Internet zu Hause,
+"utility_bill"=Energieabrechnung ohne klare Rechnung, "other".
+Bei Mahnung und zugehöriger Rechnung dieselbe invoice_number in reference_ids setzen, wenn im Text vorhanden.
 Extrahiere alle sinnvollen Referenznummern/Kundennummern/Vertrags-/Rechnungs-/Aktenzeichen wörtlich wie im Text.
 """
 
@@ -100,12 +109,32 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
         "collection_agency",
         "other",
     }
+    allowed_doc_kind = {
+        "invoice",
+        "reminder",
+        "payslip",
+        "insurance_policy",
+        "court",
+        "correspondence",
+        "mobile_contract",
+        "home_telecom",
+        "utility_bill",
+        "other",
+    }
     cat = data.get("category") or "other"
     if cat not in allowed_cat:
         cat = "other"
     role = data.get("sender_role") or "other"
     if role not in allowed_role:
         role = "other"
+    doc_kind = data.get("document_kind") or "other"
+    if doc_kind not in allowed_doc_kind:
+        doc_kind = "other"
+    if doc_kind == "other" and role == "collection_agency":
+        doc_kind = "reminder"
+    util_name = data.get("utility_provider_name")
+    if util_name is not None:
+        util_name = str(util_name).strip() or None
     raw_amounts = data.get("amounts") if isinstance(data.get("amounts"), list) else []
     amounts: list[dict[str, Any]] = []
     for a in raw_amounts:
@@ -144,6 +173,8 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
             doc_date = None
     return {
         "category": cat,
+        "document_kind": doc_kind,
+        "utility_provider_name": util_name,
         "sender_name": data.get("sender_name"),
         "sender_role": role,
         "subject": data.get("subject"),
@@ -155,6 +186,7 @@ def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def extraction_to_db_payload(normalized: dict[str, Any], raw_json: str) -> dict[str, Any]:
+    nav_folder, folder_sub = nav_from_normalized(normalized)
     return {
         "category": normalized["category"],
         "sender_name": normalized.get("sender_name"),
@@ -165,4 +197,9 @@ def extraction_to_db_payload(normalized: dict[str, Any], raw_json: str) -> dict[
         "reference_ids": normalized.get("reference_ids") or [],
         "summary_de": normalized.get("summary_de"),
         "raw_json": raw_json,
+        "nav_folder": nav_folder,
+        "folder_sub": folder_sub,
+        "document_kind": normalized.get("document_kind"),
+        "linked_payment_doc_id": None,
+        "zahlstatus": None,
     }
