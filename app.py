@@ -154,11 +154,181 @@ def _render_sidebar_lumo_brand() -> None:
             st.markdown("### ✨")
     with c_txt:
         st.markdown(
-            '<p class="docu-lumo-title">Finanz-Assistent</p>'
-            '<p class="docu-lumo-sub">Wie kann ich dir heute helfen?</p>',
+            '<p class="docu-lumo-title">Financ-Assistent</p>'
+            '<p class="docu-lumo-sub">Wie kann ich Ihnen heute helfen?</p>',
             unsafe_allow_html=True,
         )
     st.divider()
+
+
+def _render_sidebar_mockup_nav() -> None:
+    """Vertikale Navigation (Mockup: Liste mit aktivem türkisem Akzent)."""
+    st.markdown('<p class="docu-nav-heading">Menü</p>', unsafe_allow_html=True)
+    nav_options = list(NAV_KEYS_ORDER)
+    if "sidebar_nav_choice" not in st.session_state:
+        st.session_state.sidebar_nav_choice = st.session_state.get("current_nav", "home")
+    picked = st.radio(
+        "Bereich",
+        nav_options,
+        format_func=lambda k: NAV_LABELS[k],
+        key="sidebar_nav_choice",
+        label_visibility="collapsed",
+    )
+    st.session_state.current_nav = picked
+
+
+def _render_sidebar_tools_expander() -> None:
+    """Kontext, Upload, Hilfe, Suche, Papierkorb — wie zuvor, gebündelt unterhalb der Navigation."""
+    _render_context_switcher()
+    _render_sidebar_pdf_upload()
+    st.divider()
+    _render_sidebar_update_button()
+    with st.expander("Hilfe & Tipps", expanded=False):
+        st.markdown(
+            '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
+            "**App installieren:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste "
+            "(oder Menü „App installieren“) — eigenes Fenster ohne Browser-Tabs.</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
+            "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
+            "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner).</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p class="sidebar-muted" style="margin:0;">'
+            "Unterlagen bleiben auf diesem Server. **PDF hochladen** (oben); "
+            "gemeinsamer Server-Posteingang im Tab **Posteingang**.</p>",
+            unsafe_allow_html=True,
+        )
+    st.divider()
+    key_set = bool(os.environ.get("OPENAI_API_KEY"))
+    if key_set:
+        st.markdown('<span class="pill-ok">KI-Verbindung aktiv</span>', unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<span class="pill-warn">KI: Schlüssel fehlt</span>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Lege `OPENAI_API_KEY` in den Einstellungen deines Hostings "
+            "(z. B. Railway → Variables) an."
+        )
+    st.caption(f"Pro Analyse maximal ca. {LLM_TEXT_CHAR_LIMIT:,} Zeichen Text an die KI.")
+    app_ver = (os.environ.get("DOCU_APP_VERSION") or "").strip()
+    if app_ver:
+        st.caption(f"Version: **{app_ver}**")
+    if smtp_configured():
+        st.markdown("**E-Mail (SMTP)**")
+        st.caption("Sendet eine kurze Testmail an **DOCU_SMTP_FROM** (meist deine eigene Adresse).")
+        _render_smtp_testmail_button(
+            button_key="sidebar_smtp_test_mail",
+            label="Testmail an mich senden",
+            use_full_width=True,
+        )
+    st.divider()
+    st.checkbox(
+        "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
+        key="auto_matter_after_llm",
+        help=(
+            "Wenn die KI eine Kunden- oder Vertragsnummer findet, werden alle Dokumente "
+            "mit derselben Kennung einem Vorgang zugeordnet (neu oder bestehend)."
+        ),
+    )
+    st.divider()
+    st.markdown("**Suche**")
+    st.text_input(
+        "Suchbegriff",
+        key="global_doc_search_input",
+        placeholder="Dateiname, Absender, Betreff, Kennung …",
+        label_visibility="collapsed",
+    )
+    if st.button("Treffer anzeigen", key="global_doc_search_btn"):
+        st.session_state["doc_search_q"] = (
+            st.session_state.get("global_doc_search_input") or ""
+        ).strip().lower()
+    dq = (st.session_state.get("doc_search_q") or "").strip()
+    if dq:
+        hits: list[dict[str, Any]] = []
+        for r in filter_documents_by_context(list_documents(), _docu_context_key()):
+            parts = [
+                str(r.get("original_filename") or "").lower(),
+                str(r.get("summary_de") or "").lower(),
+                str(r.get("sender_name") or "").lower(),
+                str(r.get("subject") or "").lower(),
+                str(r.get("sender_role") or "").lower(),
+                str(r.get("document_date") or "").lower(),
+            ]
+            try:
+                refs = json.loads(r.get("reference_ids_json") or "[]")
+                if isinstance(refs, list):
+                    for ref in refs:
+                        if isinstance(ref, dict):
+                            parts.append(str(ref.get("value") or "").lower())
+            except json.JSONDecodeError:
+                pass
+            blob = " ".join(parts)
+            if dq in blob:
+                hits.append(r)
+        if not hits:
+            st.caption("Keine Treffer.")
+        else:
+            st.caption(f"{len(hits)} Treffer (max. 30 angezeigt).")
+            for r in hits[:30]:
+                label = f"#{r['id']} — {r.get('original_filename') or '?'}"
+                if st.button(label, key=f"srch_go_{r['id']}"):
+                    nf = (r.get("nav_folder") or "").strip()
+                    if nf not in NAV_KEYS_ORDER:
+                        nf = "home"
+                    st.session_state["current_nav"] = nf
+                    st.session_state["jump_doc_id"] = int(r["id"])
+                    st.session_state["sidebar_nav_choice"] = nf
+                    st.rerun()
+
+    with st.expander("Papierkorb (archiviert)", expanded=False):
+        arch = list_archived_documents()
+        if not arch:
+            st.caption("Keine archivierten Dokumente.")
+        else:
+            for r in arch[:40]:
+                col_a, col_b = st.columns([3, 1])
+                with col_a:
+                    st.caption(f"#{r['id']} — {r.get('original_filename') or '?'}")
+                with col_b:
+                    if st.button("Wiederherstellen", key=f"unarch_{r['id']}"):
+                        set_document_archived(int(r["id"]), False)
+                        st.rerun()
+
+    with st.expander("Gleiche Kennung (mehrere Dokumente)", expanded=False):
+        clusters = list_reference_key_clusters(limit=35)
+        if not clusters:
+            st.caption("Keine Kennung mit mehreren aktiven Dokumenten.")
+        else:
+            st.caption(
+                "Mehrere Belege teilen dieselbe extrahierte Kennung — prüfen, ob Dublette oder beabsichtigt."
+            )
+            for ci, c in enumerate(clusters):
+                kv = (c.get("key_value") or "")[:72]
+                st.markdown(
+                    f"**{c.get('id_type')}** · `{kv}` — **{c.get('doc_count')}** Dokument(e)"
+                )
+                for j, did in enumerate(c["document_ids"][:8]):
+                    if st.button(f"Dokument #{did} öffnen", key=f"rkclus_{ci}_{j}_{did}"):
+                        drow = get_document(did)
+                        nf = "home"
+                        if drow:
+                            ext0 = get_extraction(did)
+                            if ext0 and (ext0.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
+                                nf = str(ext0.get("nav_folder")).strip()
+                        st.session_state["current_nav"] = nf
+                        st.session_state["sidebar_nav_choice"] = nf
+                        st.session_state["jump_doc_id"] = int(did)
+                        st.rerun()
+
+    st.divider()
+    with st.expander("Datenschutz"):
+        st.markdown(PRIVACY_UI_DE)
 
 
 def _enqueue_payment_prompt(doc_id: int) -> None:
@@ -517,30 +687,42 @@ def _render_smtp_testmail_button(
                 st.error(str(e))
 
 
-def _render_main_quick_bar() -> None:
-    """Oben in der Mittelspalte: Update, Testmail, KI-Panel-Toggle."""
-    q1, q2, q3, q4 = st.columns([1.15, 1.15, 1.35, 3.5], gap="small")
-    with q1:
+def _render_main_header_bar(*, nav_is_home: bool) -> None:
+    """Mockup: Titel links, Aktionsschaltflächen rechts (Refresh, Testmail, Hinweis)."""
+    q0, q1, q2, q3 = st.columns([4.2, 1, 1, 1], gap="small")
+    with q0:
         st.markdown(
             '<span data-docu-quick-actions="1" aria-hidden="true" '
             'style="position:absolute;width:0;height:0;overflow:hidden"></span>',
             unsafe_allow_html=True,
         )
-        _render_reload_button("docu-app-reload-btn-main", show_caption=False, height=44)
+        title = (
+            "Finanzen — Dokumenten-Organizer" if nav_is_home else "Dokumenten-Organizer"
+        )
+        st.markdown(
+            f'<p class="docu-main-header-title">{title}</p>',
+            unsafe_allow_html=True,
+        )
+    with q1:
+        _render_reload_button("docu-app-reload-btn-main", show_caption=False, height=40)
     with q2:
-        _render_smtp_testmail_button(
-            button_key="main_smtp_test_mail",
-            label="Testmail",
-            use_full_width=True,
-        )
+        if smtp_configured():
+            _render_smtp_testmail_button(
+                button_key="main_smtp_test_mail",
+                label="✉",
+                use_full_width=True,
+            )
+        else:
+            st.caption("")
     with q3:
-        st.toggle(
-            "KI-Panel",
-            key="docu_show_chat_panel",
-            help="Rechtes Chat-Panel ein- oder ausblenden.",
-        )
-    with q4:
-        st.caption("Schnellzugriff — dieselben Aktionen finden sich auch in der **linken Sidebar**.")
+        try:
+            with st.popover("⚙"):
+                st.caption(
+                    "Kontext, PDF-Upload, Hilfe und Suche: **Kontext · PDF · Werkzeuge** "
+                    "in der linken Sidebar."
+                )
+        except Exception:
+            st.caption("⚙")
 
 
 def _render_sidebar_pdf_upload() -> None:
@@ -720,41 +902,38 @@ def _drain_pending_llm_job() -> None:
 
 
 def _render_assistant_chat() -> None:
+    """KI-Chat unten in der Sidebar (Mockup); Eingabe per Formular statt globalem chat_input."""
     lumo_av = _lumo_avatar_for_chat()
+    sb_panel = int(os.environ.get("DOCU_SIDEBAR_CHAT_PANEL", "360"))
+    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", "200"))
     if not os.environ.get("OPENAI_API_KEY"):
         st.markdown(
-            '<div class="neon-chat-panel"><div class="docu-chat-lumo-brand">'
-            '<span class="sidebar-brand" style="font-size:0.95rem;margin:0;">Lumo</span>'
-            '<span class="docu-chat-lumo-dot"></span></div>'
-            '<p class="sidebar-muted" style="margin:0.35rem 0 0 0;font-size:0.82rem;">'
-            "Assistent — Chat benötigt `OPENAI_API_KEY`.</p></div>",
+            '<div class="docu-ki-chat-head">'
+            '<div class="docu-openai-mark" aria-hidden="true">AI</div>'
+            '<span class="label">KI-Chat</span></div>'
+            '<p class="sidebar-muted" style="margin:0 0 0.5rem 0;font-size:0.82rem;">'
+            "Assistent — Chat benötigt <code>OPENAI_API_KEY</code>.</p>",
             unsafe_allow_html=True,
         )
         if LUMO_AVATAR_PATH.is_file():
-            st.image(str(LUMO_AVATAR_PATH.resolve()), width=64)
-        st.caption("Chat benötigt `OPENAI_API_KEY`.")
+            st.image(str(LUMO_AVATAR_PATH.resolve()), width=56)
         return
     _ensure_chat_messages()
+    st.markdown(
+        '<div class="docu-ki-chat-head">'
+        '<div class="docu-openai-mark" aria-hidden="true">AI</div>'
+        '<span class="label">KI-Chat</span></div>',
+        unsafe_allow_html=True,
+    )
     try:
-        panel = st.container(height=CHAT_PANEL_HEIGHT, border=False)
+        panel = st.container(height=sb_panel, border=False)
     except TypeError:
         panel = st.container()
     with panel:
-        st.markdown(
-            '<div class="neon-chat-panel">'
-            '<div class="docu-chat-lumo-brand">'
-            '<span class="sidebar-brand" style="font-size:0.95rem;margin:0;">Lumo</span>'
-            '<span class="docu-chat-lumo-dot" title="Bereit"></span>'
-            "</div>"
-            '<p class="sidebar-muted" style="margin:0.35rem 0 0.5rem 0;font-size:0.82rem;">'
-            "KI-Chat — sprich mich mit <strong>Lumo</strong> an. Suche, Filter, Dokumente und Finanzen.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
         if st.session_state.get("docu_pending_device_hint"):
             st.info(str(st.session_state.pop("docu_pending_device_hint")), icon="📺")
         try:
-            scroll = st.container(height=CHAT_MSG_HEIGHT, border=True)
+            scroll = st.container(height=sb_msg, border=True)
         except TypeError:
             scroll = st.container()
         with scroll:
@@ -774,30 +953,38 @@ def _render_assistant_chat() -> None:
             help="Alle Nachrichten löschen (Verlauf im Panel)",
             use_container_width=True,
         )
-        prompt = st.chat_input("Schreibe eine Nachricht …", key="organizer_chat_input")
-        if clear_chat:
-            st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            st.rerun()
-        if prompt:
-            _ensure_chat_messages()
-            st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
-            st.session_state.ai_chat_messages = _trim_chat_messages(
-                st.session_state.ai_chat_messages, keep_non_system=28
+        with st.form("organizer_chat_sidebar_form", clear_on_submit=True):
+            prompt = st.text_input(
+                "Nachricht",
+                label_visibility="collapsed",
+                placeholder="Schreibe eine Nachricht …",
             )
-            try:
-                with st.spinner("Lumo antwortet …"):
-                    chat_effects: list[dict[str, Any]] = []
-                    reply = run_organizer_chat(
-                        st.session_state.ai_chat_messages,
-                        tool_effects=chat_effects,
-                    )
-                    _apply_organizer_chat_tool_effects(chat_effects)
-                st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
-            except Exception as e:
-                st.session_state.ai_chat_messages.append(
-                    {"role": "assistant", "content": f"**Fehler:** {e}"}
+            submitted = st.form_submit_button("Senden", type="primary", use_container_width=True)
+
+    if clear_chat:
+        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        st.rerun()
+
+    if submitted and (prompt or "").strip():
+        _ensure_chat_messages()
+        st.session_state.ai_chat_messages.append({"role": "user", "content": (prompt or "").strip()})
+        st.session_state.ai_chat_messages = _trim_chat_messages(
+            st.session_state.ai_chat_messages, keep_non_system=28
+        )
+        try:
+            with st.spinner("Lumo antwortet …"):
+                chat_effects: list[dict[str, Any]] = []
+                reply = run_organizer_chat(
+                    st.session_state.ai_chat_messages,
+                    tool_effects=chat_effects,
                 )
-            st.rerun()
+                _apply_organizer_chat_tool_effects(chat_effects)
+            st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
+        except Exception as e:
+            st.session_state.ai_chat_messages.append(
+                {"role": "assistant", "content": f"**Fehler:** {e}"}
+            )
+        st.rerun()
 
 
 def main() -> None:
@@ -824,207 +1011,23 @@ def main() -> None:
 
     with st.sidebar:
         _render_sidebar_lumo_brand()
-        st.markdown('<p class="sidebar-brand">Navigation</p>', unsafe_allow_html=True)
-        nav_options = list(NAV_KEYS_ORDER)
-        nav_display = [NAV_LABELS[k] for k in nav_options]
-        picked = st.radio(
-            "Bereich",
-            nav_options,
-            format_func=lambda k: NAV_LABELS[k],
-            key="sidebar_nav_choice",
-            label_visibility="collapsed",
-        )
-        st.session_state.current_nav = picked
+        _render_sidebar_mockup_nav()
         st.divider()
-        _render_context_switcher()
-        _render_sidebar_pdf_upload()
+        with st.expander("Kontext · PDF · Werkzeuge", expanded=False):
+            _render_sidebar_tools_expander()
         st.divider()
-        _render_sidebar_update_button()
-        with st.expander("Hilfe & Tipps", expanded=False):
-            st.markdown(
-                '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
-                "**App installieren:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste "
-                "(oder Menü „App installieren“) — eigenes Fenster ohne Browser-Tabs.</p>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
-                "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
-                "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner).</p>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                '<p class="sidebar-muted" style="margin:0;">'
-                "Unterlagen bleiben auf diesem Server. **PDF hochladen** (oben); "
-                "gemeinsamer Server-Posteingang im Tab **Posteingang**.</p>",
-                unsafe_allow_html=True,
-            )
-        st.divider()
-        key_set = bool(os.environ.get("OPENAI_API_KEY"))
-        if key_set:
-            st.markdown('<span class="pill-ok">KI-Verbindung aktiv</span>', unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<span class="pill-warn">KI: Schlüssel fehlt</span>',
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                "Lege `OPENAI_API_KEY` in den Einstellungen deines Hostings "
-                "(z. B. Railway → Variables) an."
-            )
-        st.caption(f"Pro Analyse maximal ca. {LLM_TEXT_CHAR_LIMIT:,} Zeichen Text an die KI.")
-        app_ver = (os.environ.get("DOCU_APP_VERSION") or "").strip()
-        if app_ver:
-            st.caption(f"Version: **{app_ver}**")
-        if smtp_configured():
-            st.markdown("**E-Mail (SMTP)**")
-            st.caption("Sendet eine kurze Testmail an **DOCU_SMTP_FROM** (meist deine eigene Adresse).")
-            _render_smtp_testmail_button(
-                button_key="sidebar_smtp_test_mail",
-                label="Testmail an mich senden",
-                use_full_width=True,
-            )
-        st.divider()
-        st.checkbox(
-            "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
-            key="auto_matter_after_llm",
-            help=(
-                "Wenn die KI eine Kunden- oder Vertragsnummer findet, werden alle Dokumente "
-                "mit derselben Kennung einem Vorgang zugeordnet (neu oder bestehend)."
-            ),
-        )
-        st.divider()
-        st.markdown("**Suche**")
-        st.text_input(
-            "Suchbegriff",
-            key="global_doc_search_input",
-            placeholder="Dateiname, Absender, Betreff, Kennung …",
-            label_visibility="collapsed",
-        )
-        if st.button("Treffer anzeigen", key="global_doc_search_btn"):
-            st.session_state["doc_search_q"] = (
-                st.session_state.get("global_doc_search_input") or ""
-            ).strip().lower()
-        dq = (st.session_state.get("doc_search_q") or "").strip()
-        if dq:
-            hits: list[dict[str, Any]] = []
-            for r in filter_documents_by_context(list_documents(), _docu_context_key()):
-                parts = [
-                    str(r.get("original_filename") or "").lower(),
-                    str(r.get("summary_de") or "").lower(),
-                    str(r.get("sender_name") or "").lower(),
-                    str(r.get("subject") or "").lower(),
-                    str(r.get("sender_role") or "").lower(),
-                    str(r.get("document_date") or "").lower(),
-                ]
-                try:
-                    refs = json.loads(r.get("reference_ids_json") or "[]")
-                    if isinstance(refs, list):
-                        for ref in refs:
-                            if isinstance(ref, dict):
-                                parts.append(str(ref.get("value") or "").lower())
-                except json.JSONDecodeError:
-                    pass
-                blob = " ".join(parts)
-                if dq in blob:
-                    hits.append(r)
-            if not hits:
-                st.caption("Keine Treffer.")
-            else:
-                st.caption(f"{len(hits)} Treffer (max. 30 angezeigt).")
-                for r in hits[:30]:
-                    label = f"#{r['id']} — {r.get('original_filename') or '?'}"
-                    if st.button(label, key=f"srch_go_{r['id']}"):
-                        nf = (r.get("nav_folder") or "").strip()
-                        if nf not in NAV_KEYS_ORDER:
-                            nf = "home"
-                        st.session_state["current_nav"] = nf
-                        st.session_state["jump_doc_id"] = int(r["id"])
-                        st.session_state["sidebar_nav_choice"] = nf
-                        st.rerun()
+        _render_assistant_chat()
 
-        with st.expander("Papierkorb (archiviert)", expanded=False):
-            arch = list_archived_documents()
-            if not arch:
-                st.caption("Keine archivierten Dokumente.")
-            else:
-                for r in arch[:40]:
-                    col_a, col_b = st.columns([3, 1])
-                    with col_a:
-                        st.caption(f"#{r['id']} — {r.get('original_filename') or '?'}")
-                    with col_b:
-                        if st.button("Wiederherstellen", key=f"unarch_{r['id']}"):
-                            set_document_archived(int(r["id"]), False)
-                            st.rerun()
-
-        with st.expander("Gleiche Kennung (mehrere Dokumente)", expanded=False):
-            clusters = list_reference_key_clusters(limit=35)
-            if not clusters:
-                st.caption("Keine Kennung mit mehreren aktiven Dokumenten.")
-            else:
-                st.caption(
-                    "Mehrere Belege teilen dieselbe extrahierte Kennung — prüfen, ob Dublette oder beabsichtigt."
-                )
-                for ci, c in enumerate(clusters):
-                    kv = (c.get("key_value") or "")[:72]
-                    st.markdown(
-                        f"**{c.get('id_type')}** · `{kv}` — **{c.get('doc_count')}** Dokument(e)"
-                    )
-                    for j, did in enumerate(c["document_ids"][:8]):
-                        if st.button(f"Dokument #{did} öffnen", key=f"rkclus_{ci}_{j}_{did}"):
-                            drow = get_document(did)
-                            nf = "home"
-                            if drow:
-                                ext0 = get_extraction(did)
-                                if ext0 and (ext0.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
-                                    nf = str(ext0.get("nav_folder")).strip()
-                            st.session_state["current_nav"] = nf
-                            st.session_state["sidebar_nav_choice"] = nf
-                            st.session_state["jump_doc_id"] = int(did)
-                            st.rerun()
-
-        st.divider()
-        with st.expander("Datenschutz"):
-            st.markdown(PRIVACY_UI_DE)
-
-    if "docu_show_chat_panel" not in st.session_state:
-        st.session_state.docu_show_chat_panel = True
-    show_chat_panel = bool(st.session_state.docu_show_chat_panel)
-
-    if show_chat_panel:
-        main_c, chat_c = st.columns([1.68, 1.28], gap="medium")
-    else:
-        main_c = st.columns([1.0])[0]
-        chat_c = None
+    main_c = st.columns([1.0])[0]
 
     with main_c:
-        if show_chat_panel:
-            st.markdown(
-                '<div data-docu-main-chat-layout aria-hidden="true" '
-                'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<div data-docu-main-single-col aria-hidden="true" '
-                'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
-                unsafe_allow_html=True,
-            )
-        _render_main_quick_bar()
-        if not show_chat_panel:
-            st.caption("KI-Panel ist aus — **KI-Panel** oben aktivieren, um Lumo wieder anzuzeigen.")
-
+        st.markdown(
+            '<div data-docu-main-single-col aria-hidden="true" '
+            'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
+            unsafe_allow_html=True,
+        )
         nav_now = st.session_state.get("current_nav", "home")
-        if nav_now == "home":
-            st.markdown(
-                '<p class="docu-page-hero-title">Finanzen — Dokumenten-Organizer</p>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<p class="docu-page-hero-title">Dokumenten-Organizer</p>',
-                unsafe_allow_html=True,
-            )
+        _render_main_header_bar(nav_is_home=(nav_now == "home"))
         _render_payment_status_queue()
         _render_monthly_expense_queue()
         _render_owner_assignment_queue()
@@ -1479,9 +1482,5 @@ def main() -> None:
                             unlink_document_from_matter(int(d["id"]), int(m["id"]))
                             st.rerun()
     
-    if chat_c is not None:
-        with chat_c:
-            _render_assistant_chat()
-
 if __name__ == "__main__":
     main()

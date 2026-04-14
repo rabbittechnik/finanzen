@@ -31,9 +31,15 @@ def inject_neon_styles() -> None:
   }
 
   [data-testid="stSidebar"] {
+    width: 26vw !important;
+    min-width: 280px !important;
+    max-width: 400px !important;
     background: linear-gradient(175deg, #0c101a 0%, #0a0e14 100%) !important;
     border-right: 1px solid rgba(100, 116, 139, 0.22) !important;
     box-shadow: 2px 0 20px rgba(0, 0, 0, 0.25);
+  }
+  [data-testid="stSidebar"] > div:first-child {
+    width: 100% !important;
   }
   [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
     color: #b8c5d6 !important;
@@ -68,7 +74,7 @@ def inject_neon_styles() -> None:
   }
 
   .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 55%, #2dd4bf 100%) !important;
+    background: linear-gradient(90deg, #22d3ee 0%, #14b8a6 48%, #0d9488 100%) !important;
     color: #041016 !important;
     font-weight: 600 !important;
     border: none !important;
@@ -374,6 +380,107 @@ def inject_neon_styles() -> None:
     border-radius: 999px;
     background: #2dd4bf;
     box-shadow: 0 0 8px rgba(45, 212, 191, 0.7);
+  }
+
+  /* Mockup: Hauptkopfzeile */
+  .docu-main-header-title {
+    font-size: 1.2rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    color: #f1f5f9 !important;
+    margin: 0.35rem 0 0.5rem 0 !important;
+    padding: 0 !important;
+    line-height: 1.3 !important;
+  }
+  .docu-header-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
+  }
+
+  /* Sidebar: Mockup-Navigation (Radio als Liste) */
+  .docu-nav-heading {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin: 0.5rem 0 0.35rem 0;
+  }
+  [data-testid="stSidebar"] [data-testid="stRadio"] {
+    gap: 0.15rem !important;
+  }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label {
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0.42rem 0.65rem 0.42rem 0.55rem !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(100, 116, 139, 0.22) !important;
+    border-left: 3px solid transparent !important;
+    background: rgba(15, 23, 42, 0.4) !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    color: #cbd5e1 !important;
+    cursor: pointer !important;
+  }
+  [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked),
+  [data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] {
+    border-left-color: #2dd4bf !important;
+    background: rgba(13, 148, 136, 0.12) !important;
+    color: #e2e8f0 !important;
+    box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.15) !important;
+  }
+  [data-testid="stSidebar"] [data-testid="stRadio"] input {
+    accent-color: #2dd4bf;
+  }
+
+  /* KI-Chat-Panel in der Sidebar */
+  .docu-ki-chat-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.25);
+  }
+  .docu-ki-chat-head span.label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    letter-spacing: 0.02em;
+  }
+  .docu-openai-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: linear-gradient(145deg, #10a37f 0%, #1a7f64 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+  }
+
+  .dash-section-label--cats {
+    font-size: 0.78rem !important;
+    letter-spacing: 0.1em !important;
+    margin-top: 1.5rem !important;
+  }
+  .dash-tile-hero-amt {
+    font-size: 1.65rem !important;
+    font-weight: 700 !important;
+    color: #e2e8f0 !important;
+    margin: 0.15rem 0 0.35rem 0 !important;
+  }
+  .dash-tile-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
   }
 </style>
         """,
