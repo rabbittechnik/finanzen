@@ -389,7 +389,22 @@ def _render_assistant_chat() -> None:
                     continue
                 with st.chat_message(m["role"]):
                     st.markdown(m.get("content") or "")
-        prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
+        try:
+            inp_col, clr_col = st.columns((5, 1), gap="small", vertical_alignment="bottom")
+        except TypeError:
+            inp_col, clr_col = st.columns((5, 1), gap="small")
+        with inp_col:
+            prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
+        with clr_col:
+            clear_chat = st.button(
+                "Leeren",
+                key="organizer_chat_clear",
+                help="Chat zurücksetzen",
+                use_container_width=True,
+            )
+        if clear_chat:
+            st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            st.rerun()
         if prompt:
             _ensure_chat_messages()
             st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
@@ -404,9 +419,6 @@ def _render_assistant_chat() -> None:
                 st.session_state.ai_chat_messages.append(
                     {"role": "assistant", "content": f"**Fehler:** {e}"}
                 )
-            st.rerun()
-        if st.button("Chat leeren", key="organizer_chat_clear"):
-            st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             st.rerun()
 
 
