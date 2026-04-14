@@ -30,13 +30,14 @@ from db import (
     set_zahlstatus_linked,
     unlink_document_from_matter,
 )
-from home_finance import compute_home_stats, is_expense_monthly_prompt_candidate
+from home_finance import is_expense_monthly_prompt_candidate
 from nav_logic import NAV_KEYS_ORDER, NAV_LABELS, _norm_kind
 from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
 from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
 from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from pwa_inject import inject_pwa_tags
+from dashboard_ui import render_finance_dashboard
 from ui_theme import inject_neon_styles
 
 load_dotenv()
@@ -222,34 +223,6 @@ def _render_sidebar_pdf_upload() -> None:
                         st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
                         _enqueue_payment_prompt(int(r["id"]))
             st.rerun()
-
-
-def _render_home_dashboard() -> None:
-    stats = compute_home_stats(list_documents())
-    intro_html = """<p style="color:#94a3b8;font-size:0.95rem;margin:0 0 0.75rem 0;">
-Überblick aus KI-Extraktion und Kennungen - Schuldensumme zählt offene Forderungen
-<strong style="color:#a5f3fc;">pro Aktenzeichen/Kundennummer nur einmal</strong>
-(verknüpfte Mahnung + Rechnung nicht doppelt).</p>"""
-    st.markdown(intro_html, unsafe_allow_html=True)
-    kpi_html = f"""<div class="neon-kpi-row">
-<div class="neon-kpi">
-<div class="neon-kpi-label">Einnahmen (Lohn)</div>
-<div class="neon-kpi-value">{_fmt_de_eur(stats.income_month_eur)}</div>
-<div class="neon-kpi-sub">Nach Lohnabrechnung - <strong>{stats.month_label}</strong>
-(Netto laut KI-Feld <code>payslip_net_income_eur</code>)</div></div>
-<div class="neon-kpi magenta">
-<div class="neon-kpi-label">Schuldensumme (offen)</div>
-<div class="neon-kpi-value">{_fmt_de_eur(stats.debt_open_eur)}</div>
-<div class="neon-kpi-sub">Zahlungsaufforderungen &amp; Mahnungen -
-<strong>{stats.debt_groups}</strong> getrennte Kennung(en)</div></div>
-<div class="neon-kpi gold">
-<div class="neon-kpi-label">Ausgaben (Monat)</div>
-<div class="neon-kpi-value">{_fmt_de_eur(stats.expense_month_eur)}</div>
-<div class="neon-kpi-sub">Ohne Ihre Auswahl zählen passende Belege vorläufig mit;
-<strong>Nein</strong> schließt explizit aus. Kalendermonat <strong>{stats.month_label}</strong>
-(Datum laut Dokument).</div></div>
-</div>"""
-    st.markdown(kpi_html, unsafe_allow_html=True)
 
 
 def _trim_chat_messages(msgs: list[dict[str, Any]], *, keep_non_system: int = 24) -> list[dict[str, Any]]:
@@ -495,11 +468,12 @@ def main() -> None:
     main_c, chat_c = st.columns([2.15, 1], gap="medium")
     with main_c:
         nav_now = st.session_state.get("current_nav", "home")
-        st.title("Dokumenten-Organizer")
+        if nav_now != "home":
+            st.title("Dokumenten-Organizer")
         _render_payment_status_queue()
         _render_monthly_expense_queue()
         if nav_now == "home":
-            _render_home_dashboard()
+            render_finance_dashboard(list_documents())
         else:
             st.markdown(
                 '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
