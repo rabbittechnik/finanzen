@@ -201,6 +201,20 @@ def inject_neon_styles() -> None:
     background: rgba(12, 18, 30, 0.75);
     margin-bottom: 0.75rem;
   }
+
+  /* Haupt-Layout: linke Spalte scrollt intern; Chat-Spalte bleibt im sichtbaren Bereich */
+  div[data-testid="stHorizontalBlock"]:has([data-testid="stChatInput"]) > div[data-testid="column"]:first-child {
+    max-height: calc(100dvh - 5rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    scrollbar-gutter: stable;
+  }
+  div[data-testid="stHorizontalBlock"]:has([data-testid="stChatInput"]) > div[data-testid="column"]:last-child {
+    max-height: calc(100dvh - 5rem);
+    overflow: hidden;
+    align-self: flex-start;
+  }
 </style>
         """,
         unsafe_allow_html=True,

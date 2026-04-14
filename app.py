@@ -41,9 +41,12 @@ from ui_theme import inject_neon_styles
 
 load_dotenv()
 
-# Zweiphasige KI-Analyse (Chat-Feed); Scroll-Höhe Chat-Verlauf (Pixel)
+# Zweiphasige KI-Analyse (Chat-Feed); Chat-Panel (Pixel, gesamt inkl. Eingabe im rechten Block)
 PENDING_LLM_KEY = "docu_pending_llm"
-CHAT_SCROLL_HEIGHT = int(os.environ.get("DOCU_CHAT_SCROLL_HEIGHT", "660"))
+CHAT_PANEL_HEIGHT = int(os.environ.get("DOCU_CHAT_PANEL_HEIGHT", "640"))
+CHAT_MSG_HEIGHT = int(os.environ.get("DOCU_CHAT_MSG_HEIGHT", "0")) or max(
+    220, CHAT_PANEL_HEIGHT - 210
+)
 
 CATEGORY_DE = {
     "energy": "Energie (Strom/Gas)",
@@ -182,6 +185,45 @@ def _render_monthly_expense_queue() -> None:
             st.rerun()
 
 
+def _render_sidebar_pdf_upload() -> None:
+    """PDF-Upload in der linken Sidebar — Hauptbereich entlasten."""
+    st.divider()
+    st.markdown(
+        '<p class="sidebar-brand" style="font-size:0.9rem;">PDF hochladen</p>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Direkt hier ablegen — Tab **Posteingang** für Server-Ordner & Liste.")
+    up = st.file_uploader(
+        "PDF-Dateien",
+        type=["pdf"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        key="sidebar_pdf_uploader",
+    )
+    auto_import = st.checkbox(
+        "Hochgeladene PDFs sofort einlesen",
+        value=True,
+        key="sidebar_pdf_auto_import",
+    )
+    if up:
+        if st.button("Upload starten", type="primary", key="sidebar_pdf_upload_btn"):
+            for f in up:
+                path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                st.caption(f"Gespeichert: `{path.name}`")
+                if auto_import:
+                    with st.spinner(f"Import: {path.name}…"):
+                        r = import_one_pdf(path)
+                    if r["status"] == "duplicate":
+                        st.warning(f'Duplikat: **{r["filename"]}**')
+                    elif r["status"] == "error":
+                        st.error(r.get("message", "Fehler"))
+                    else:
+                        ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
+                        st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
+                        _enqueue_payment_prompt(int(r["id"]))
+            st.rerun()
+
+
 def _render_home_dashboard() -> None:
     stats = compute_home_stats(list_documents())
     intro_html = """<p style="color:#94a3b8;font-size:0.95rem;margin:0 0 0.75rem 0;">
@@ -316,47 +358,56 @@ def _drain_pending_llm_job() -> None:
 
 
 def _render_assistant_chat() -> None:
-    st.markdown(
-        '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.5rem 0;">'
-        "KI-Assistent</p>"
-        "<p class=\"sidebar-muted\" style=\"margin:0 0 0.75rem 0;\">Fragen zur App, Belege finden, "
-        "Ablage per Tool ändern (nach KI-Analyse). Dokument-KI schreibt hier beim Analysieren mit.</p></div>",
-        unsafe_allow_html=True,
-    )
     if not os.environ.get("OPENAI_API_KEY"):
+        st.markdown(
+            '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0;">'
+            "KI-Assistent</p></div>",
+            unsafe_allow_html=True,
+        )
         st.caption("Chat benötigt `OPENAI_API_KEY`.")
         return
     _ensure_chat_messages()
     try:
-        scroll = st.container(height=CHAT_SCROLL_HEIGHT, border=True)
+        panel = st.container(height=CHAT_PANEL_HEIGHT, border=False)
     except TypeError:
-        scroll = st.container()
-    with scroll:
-        for m in st.session_state.ai_chat_messages:
-            if m.get("role") == "system":
-                continue
-            with st.chat_message(m["role"]):
-                st.markdown(m.get("content") or "")
-    prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
-    if prompt:
-        _ensure_chat_messages()
-        st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
-        st.session_state.ai_chat_messages = _trim_chat_messages(
-            st.session_state.ai_chat_messages, keep_non_system=28
+        panel = st.container()
+    with panel:
+        st.markdown(
+            '<div class="neon-chat-panel"><p class="sidebar-brand" style="font-size:0.95rem;margin:0 0 0.35rem 0;">'
+            "KI-Assistent</p>"
+            '<p class="sidebar-muted" style="margin:0 0 0.5rem 0;font-size:0.82rem;">'
+            "Fragen, Belege finden, Ablage per Tool — Dokument-KI schreibt beim Analysieren mit.</p></div>",
+            unsafe_allow_html=True,
         )
         try:
-            with st.spinner("KI antwortet…"):
-                reply = run_organizer_chat(st.session_state.ai_chat_messages)
-            st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
-        except Exception as e:
-            st.session_state.ai_chat_messages.append(
-                {"role": "assistant", "content": f"**Fehler:** {e}"}
+            scroll = st.container(height=CHAT_MSG_HEIGHT, border=True)
+        except TypeError:
+            scroll = st.container()
+        with scroll:
+            for m in st.session_state.ai_chat_messages:
+                if m.get("role") == "system":
+                    continue
+                with st.chat_message(m["role"]):
+                    st.markdown(m.get("content") or "")
+        prompt = st.chat_input("Frage zum Organizer …", key="organizer_chat_input")
+        if prompt:
+            _ensure_chat_messages()
+            st.session_state.ai_chat_messages.append({"role": "user", "content": prompt})
+            st.session_state.ai_chat_messages = _trim_chat_messages(
+                st.session_state.ai_chat_messages, keep_non_system=28
             )
-        st.rerun()
-    if st.button("Chat leeren", key="organizer_chat_clear"):
-        _ensure_chat_messages()
-        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        st.rerun()
+            try:
+                with st.spinner("KI antwortet…"):
+                    reply = run_organizer_chat(st.session_state.ai_chat_messages)
+                st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
+            except Exception as e:
+                st.session_state.ai_chat_messages.append(
+                    {"role": "assistant", "content": f"**Fehler:** {e}"}
+                )
+            st.rerun()
+        if st.button("Chat leeren", key="organizer_chat_clear"):
+            st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            st.rerun()
 
 
 def main() -> None:
@@ -387,6 +438,7 @@ def main() -> None:
             label_visibility="collapsed",
         )
         st.session_state.current_nav = picked
+        _render_sidebar_pdf_upload()
         st.caption(
             "**App:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste (oder Menü "
             "„App installieren“) — wie beim Werkstatt-Programm, eigenes Fenster ohne Browser-Tabs."
@@ -398,7 +450,7 @@ def main() -> None:
         st.divider()
         st.markdown(
             '<p class="sidebar-muted">Deine Unterlagen bleiben auf diesem Server. '
-            "Zum Einlesen PDFs im Tab **Posteingang** hochladen.</p>",
+            "PDFs **oben in der Sidebar** hochladen; Tab **Posteingang** für Server-Ordner und Liste.</p>",
             unsafe_allow_html=True,
         )
         st.divider()
@@ -448,39 +500,14 @@ def main() -> None:
         tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
     
         with tab_inbox:
-            st.subheader("PDFs hochladen")
-            st.write("PDFs hier ablegen – optional gleich ins Archiv übernehmen (wie Posteingang).")
-            up = st.file_uploader(
-                "Dateien wählen",
-                type=["pdf"],
-                accept_multiple_files=True,
-                label_visibility="collapsed",
+            st.caption(
+                "PDF-Upload liegt in der **linken Sidebar** — hier: Posteingang vom Server und Dateiliste."
             )
-            auto_import = st.checkbox("Hochgeladene PDFs sofort einlesen", value=True)
-            if up:
-                if st.button("Upload starten", type="primary"):
-                    for f in up:
-                        path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
-                        st.caption(f"Gespeichert: `{path.name}`")
-                        if auto_import:
-                            with st.spinner(f"Import: {path.name}…"):
-                                r = import_one_pdf(path)
-                            if r["status"] == "duplicate":
-                                st.warning(f'Duplikat: **{r["filename"]}**')
-                            elif r["status"] == "error":
-                                st.error(r.get("message", "Fehler"))
-                            else:
-                                ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
-                                st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
-                                _enqueue_payment_prompt(int(r["id"]))
-                    st.rerun()
-    
-            st.divider()
             st.subheader("Posteingang vom Server")
             st.write(
                 "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
                 "kannst du dort PDFs ablegen und mit **Jetzt einlesen** importieren. "
-                "Am einfachsten nutzt du den **Upload** oben."
+                "Dateien vom Rechner: **PDF hochladen** in der linken Sidebar."
             )
             if st.button("Jetzt einlesen", type="primary"):
                 with st.spinner("Import läuft…"):
@@ -504,7 +531,10 @@ def main() -> None:
             st.subheader(NAV_LABELS.get(nav_key, "Dokumente"))
             rows = list_documents_for_nav(nav_key if nav_key != "home" else None)
             if not rows:
-                st.info("Noch keine Dokumente in diesem Bereich. Import im Tab Posteingang, dann KI-Analyse.")
+                st.info(
+                    "Noch keine Dokumente in diesem Bereich. PDFs in der **Sidebar** oder "
+                    "Tab **Posteingang** importieren, dann KI-Analyse."
+                )
             else:
                 if nav_key == "stromanbieter":
                     by_sub: dict[str | None, list] = defaultdict(list)
