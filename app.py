@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
@@ -184,6 +185,35 @@ def _render_monthly_expense_queue() -> None:
         if st.button("Später", key=f"mq_skip_{did}"):
             q.pop(0)
             st.rerun()
+
+
+def _render_sidebar_update_button() -> None:
+    """Vollständiger Browser-Reload — wie „Update“ im Werkstatt-Programm (neue Version vom Server)."""
+    st.caption("Nach Deploy: Seite neu laden.")
+    components.html(
+        """
+<div style="font-family:system-ui,sans-serif;margin:0;">
+  <button type="button" id="docu-app-reload-btn" title="Neueste Version vom Server laden"
+    style="width:100%;padding:0.45rem 0.65rem;border-radius:10px;cursor:pointer;font-weight:700;
+    font-size:0.9rem;color:#041016;border:none;
+    background:linear-gradient(135deg,#00c9aa 0%,#00f5d4 55%,#5eead4 100%);
+    box-shadow:0 0 16px rgba(0,245,212,0.35);">
+    Update
+  </button>
+</div>
+<script>
+(function(){
+  var b = document.getElementById('docu-app-reload-btn');
+  if (!b) return;
+  b.addEventListener('click', function(){
+    try { (window.top || window.parent || window).location.reload(); }
+    catch(e) { window.location.reload(); }
+  });
+})();
+</script>
+        """,
+        height=52,
+    )
 
 
 def _render_sidebar_pdf_upload() -> None:
@@ -424,6 +454,8 @@ def main() -> None:
         )
         st.session_state.current_nav = picked
         _render_sidebar_pdf_upload()
+        st.divider()
+        _render_sidebar_update_button()
         st.caption(
             "**App:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste (oder Menü "
             "„App installieren“) — wie beim Werkstatt-Programm, eigenes Fenster ohne Browser-Tabs."
