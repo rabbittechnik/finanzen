@@ -240,10 +240,9 @@ def _render_sidebar_update_button() -> None:
         """
 <div style="font-family:system-ui,sans-serif;margin:0;">
   <button type="button" id="docu-app-reload-btn" title="Neueste Version vom Server laden"
-    style="width:100%;padding:0.45rem 0.65rem;border-radius:10px;cursor:pointer;font-weight:700;
-    font-size:0.9rem;color:#041016;border:none;
-    background:linear-gradient(135deg,#00c9aa 0%,#00f5d4 55%,#5eead4 100%);
-    box-shadow:0 0 16px rgba(0,245,212,0.35);">
+    style="width:100%;padding:0.45rem 0.65rem;border-radius:10px;cursor:pointer;font-weight:600;
+    font-size:0.9rem;color:#e2e8f0;background:#1e293b;border:1px solid rgba(148,163,184,0.4);
+    box-shadow:0 1px 3px rgba(0,0,0,0.25);">
     Update
   </button>
 </div>
@@ -269,7 +268,7 @@ def _render_sidebar_pdf_upload() -> None:
         '<p class="sidebar-brand" style="font-size:0.9rem;">PDF hochladen</p>',
         unsafe_allow_html=True,
     )
-    st.caption("Direkt hier ablegen — Tab **Posteingang** für Server-Ordner & Liste.")
+    st.caption("Hier ablegen oder **Upload starten** — Server-Ordner im Tab **Posteingang**.")
     up = st.file_uploader(
         "PDF-Dateien",
         type=["pdf"],
@@ -499,20 +498,25 @@ def main() -> None:
         _render_sidebar_pdf_upload()
         st.divider()
         _render_sidebar_update_button()
-        st.caption(
-            "**App:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste (oder Menü "
-            "„App installieren“) — wie beim Werkstatt-Programm, eigenes Fenster ohne Browser-Tabs."
-        )
-        st.caption(
-            "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
-            "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner)."
-        )
-        st.divider()
-        st.markdown(
-            '<p class="sidebar-muted">Deine Unterlagen bleiben auf diesem Server. '
-            "PDFs **oben in der Sidebar** hochladen; Tab **Posteingang** für Server-Ordner und Liste.</p>",
-            unsafe_allow_html=True,
-        )
+        with st.expander("Hilfe & Tipps", expanded=False):
+            st.markdown(
+                '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
+                "**App installieren:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste "
+                "(oder Menü „App installieren“) — eigenes Fenster ohne Browser-Tabs.</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
+                "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
+                "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner).</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<p class="sidebar-muted" style="margin:0;">'
+                "Unterlagen bleiben auf diesem Server. **PDF hochladen** (oben); "
+                "gemeinsamer Server-Posteingang im Tab **Posteingang**.</p>",
+                unsafe_allow_html=True,
+            )
         st.divider()
         key_set = bool(os.environ.get("OPENAI_API_KEY"))
         if key_set:
@@ -683,14 +687,11 @@ def main() -> None:
         tab_inbox, tab_docs, tab_matters = st.tabs(["Posteingang", "Dokumente", "Vorgänge"])
     
         with tab_inbox:
-            st.caption(
-                "PDF-Upload liegt in der **linken Sidebar** — hier: Posteingang vom Server und Dateiliste."
-            )
             st.subheader("Posteingang vom Server")
             st.write(
                 "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
-                "kannst du dort PDFs ablegen und mit **Jetzt einlesen** importieren. "
-                "Dateien vom Rechner: **PDF hochladen** in der linken Sidebar."
+                "lege dort PDFs ab und importiere sie mit **Jetzt einlesen**. "
+                "Vom Rechner: **PDF hochladen** in der linken Sidebar."
             )
             if st.button("Jetzt einlesen", type="primary"):
                 with st.spinner("Import läuft…"):

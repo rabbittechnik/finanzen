@@ -37,6 +37,12 @@ def _tile_html(title: str, body_html: str, variant: str) -> str:
     )
 
 
+def _tile_with_detail(html: str, tile_id: str, btn_key: str) -> None:
+    st.markdown(html, unsafe_allow_html=True)
+    if st.button("Details", key=btn_key, type="secondary"):
+        _open_tile(tile_id)
+
+
 def _open_tile(tile_id: str) -> None:
     st.session_state[_DASH_TILE_KEY] = tile_id
     st.rerun()
@@ -91,16 +97,6 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
         unsafe_allow_html=True,
     )
 
-    def row3(a: str, b: str, c: str | None) -> None:
-        c3 = st.columns(3)
-        with c3[0]:
-            st.markdown(a, unsafe_allow_html=True)
-        with c3[1]:
-            st.markdown(b, unsafe_allow_html=True)
-        with c3[2]:
-            if c:
-                st.markdown(c, unsafe_allow_html=True)
-
     saldo_body = (
         f'<p class="{_money_class(mets.income_eur)}">Einnahmen: +{_fmt(mets.income_eur)}</p>'
         f'<p class="dash-money-neg">Ausgaben: −{_fmt(mets.expense_all_eur)}</p>'
@@ -124,37 +120,25 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
         "<p class=\"dash-tile-note\">Positiv ≈ mehr gezahlt als offen gefordert; negativ ≈ Nachzahlung.</p>"
     )
 
-    row3(
-        _tile_html("Saldo (Monat)", saldo_body, "saldo"),
-        _tile_html("Fixkosten-Saldo", fix_body, "fixkosten"),
-        _tile_html("Einnahmen (Monat)", ein_body, "income"),
-    )
-    c_btn = st.columns(3)
-    with c_btn[0]:
-        if st.button("Details", key="dash_btn_saldo", use_container_width=True):
-            _open_tile("saldo")
-    with c_btn[1]:
-        if st.button("Details", key="dash_btn_fix", use_container_width=True):
-            _open_tile("fixkosten")
-    with c_btn[2]:
-        if st.button("Details", key="dash_btn_ein", use_container_width=True):
-            _open_tile("einnahmen")
+    r1 = st.columns(3)
+    with r1[0]:
+        _tile_with_detail(_tile_html("Saldo (Monat)", saldo_body, "saldo"), "saldo", "dash_btn_saldo")
+    with r1[1]:
+        _tile_with_detail(_tile_html("Fixkosten-Saldo", fix_body, "fixkosten"), "fixkosten", "dash_btn_fix")
+    with r1[2]:
+        _tile_with_detail(_tile_html("Einnahmen (Monat)", ein_body, "income"), "einnahmen", "dash_btn_ein")
 
-    row3(
-        _tile_html("Ausgaben (Monat)", aus_body, "expense"),
-        _tile_html("Schulden", sch_body, "debt"),
-        _tile_html(f"Stromkosten {mets.strom_year}", strom_body, "strom"),
-    )
-    c2 = st.columns(3)
-    with c2[0]:
-        if st.button("Details", key="dash_btn_aus", use_container_width=True):
-            _open_tile("ausgaben")
-    with c2[1]:
-        if st.button("Details", key="dash_btn_sch", use_container_width=True):
-            _open_tile("schulden")
-    with c2[2]:
-        if st.button("Details", key="dash_btn_strom", use_container_width=True):
-            _open_tile("strom_jahr")
+    r2 = st.columns(3)
+    with r2[0]:
+        _tile_with_detail(_tile_html("Ausgaben (Monat)", aus_body, "expense"), "ausgaben", "dash_btn_aus")
+    with r2[1]:
+        _tile_with_detail(_tile_html("Schulden", sch_body, "debt"), "schulden", "dash_btn_sch")
+    with r2[2]:
+        _tile_with_detail(
+            _tile_html(f"Stromkosten {mets.strom_year}", strom_body, "strom"),
+            "strom_jahr",
+            "dash_btn_strom",
+        )
 
     st.markdown('<p class="dash-section-label">Kategorien (Monat)</p>', unsafe_allow_html=True)
     cat_a = (
@@ -163,29 +147,20 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
     )
     cat_b = f"<p><strong>{_fmt(mets.cat_handy_eur)}</strong></p><p>Handy</p>"
     cat_c = f"<p><strong>{_fmt(mets.cat_vers_eur)}</strong></p><p>Versicherungen</p>"
-    row3(
-        _tile_html("Haus & Internet", cat_a, "haus"),
-        _tile_html("Handy", cat_b, "handy"),
-        _tile_html("Versicherungen", cat_c, "vers"),
-    )
-    c3 = st.columns(3)
-    with c3[0]:
-        if st.button("Details", key="dash_btn_haus", use_container_width=True):
-            _open_tile("haus")
-    with c3[1]:
-        if st.button("Details", key="dash_btn_handy", use_container_width=True):
-            _open_tile("handy")
-    with c3[2]:
-        if st.button("Details", key="dash_btn_vers", use_container_width=True):
-            _open_tile("versicherungen")
+    r3 = st.columns(3)
+    with r3[0]:
+        _tile_with_detail(_tile_html("Haus & Internet", cat_a, "haus"), "haus", "dash_btn_haus")
+    with r3[1]:
+        _tile_with_detail(_tile_html("Handy", cat_b, "handy"), "handy", "dash_btn_handy")
+    with r3[2]:
+        _tile_with_detail(_tile_html("Versicherungen", cat_c, "vers"), "versicherungen", "dash_btn_vers")
 
     oep = f"<p><strong>{_fmt(mets.cat_oepnv_eur)}</strong></p><p>ÖPNV (Schriftverkehr + Stichworte)</p>"
-    st.markdown(
+    _tile_with_detail(
         f'<div class="dash-grid-1"><div class="dash-tile-outer">{_tile_html("ÖPNV", oep, "oepnv")}</div></div>',
-        unsafe_allow_html=True,
+        "oepnv",
+        "dash_btn_oepnv",
     )
-    if st.button("Details", key="dash_btn_oepnv", use_container_width=True):
-        _open_tile("oepnv")
 
 
 def _render_detail(rows: list[dict[str, Any]], tile: str, y: int, m: int) -> None:

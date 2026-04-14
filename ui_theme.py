@@ -1,4 +1,4 @@
-"""Globale Neon-Dark Styles (Streamlit + config.toml)."""
+"""Globale Dark-UI Styles für Streamlit (ruhiger Fokus, dezente Akzente)."""
 from __future__ import annotations
 
 import streamlit as st
@@ -16,17 +16,24 @@ def inject_neon_styles() -> None:
 
   [data-testid="stAppViewContainer"] {
     background:
-      radial-gradient(1200px 600px at 12% -10%, rgba(0, 245, 212, 0.12), transparent 55%),
-      radial-gradient(900px 500px at 88% 0%, rgba(183, 148, 246, 0.1), transparent 50%),
+      radial-gradient(1200px 600px at 12% -10%, rgba(0, 245, 212, 0.05), transparent 55%),
+      radial-gradient(900px 500px at 88% 0%, rgba(183, 148, 246, 0.04), transparent 50%),
       linear-gradient(180deg, #070a12 0%, #0a0f18 100%) !important;
   }
 
-  [data-testid="stHeader"] { background: rgba(7, 10, 18, 0.85) !important; backdrop-filter: blur(8px); }
+  [data-testid="stHeader"] {
+    background: #0a0f18 !important;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.2) !important;
+    backdrop-filter: blur(8px);
+  }
+  [data-testid="stHeader"] [data-testid="stToolbar"] {
+    background: transparent !important;
+  }
 
   [data-testid="stSidebar"] {
     background: linear-gradient(175deg, #0c101a 0%, #0a0e14 100%) !important;
-    border-right: 1px solid rgba(0, 245, 212, 0.18) !important;
-    box-shadow: 4px 0 32px rgba(0, 0, 0, 0.35);
+    border-right: 1px solid rgba(100, 116, 139, 0.22) !important;
+    box-shadow: 2px 0 20px rgba(0, 0, 0, 0.25);
   }
   [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
     color: #b8c5d6 !important;
@@ -35,12 +42,11 @@ def inject_neon_styles() -> None:
   h1 {
     font-weight: 700 !important;
     letter-spacing: -0.03em !important;
-    font-size: 2.1rem !important;
-    background: linear-gradient(110deg, #00f5d4 0%, #6ee7ff 42%, #c4b5fd 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 24px rgba(0, 245, 212, 0.25));
+    font-size: 1.95rem !important;
+    color: #e8edf5 !important;
+    -webkit-text-fill-color: #e8edf5 !important;
+    background: none !important;
+    filter: none !important;
   }
 
   h2, h3, h4 { color: #f0f4fa !important; font-weight: 600 !important; }
@@ -50,9 +56,9 @@ def inject_neon_styles() -> None:
     font-weight: 600 !important;
   }
   [data-testid="stTabs"] [aria-selected="true"] {
-    color: #00f5d4 !important;
-    border-bottom-color: #00f5d4 !important;
-    text-shadow: 0 0 18px rgba(0, 245, 212, 0.45);
+    color: #5eead4 !important;
+    border-bottom-color: rgba(94, 234, 212, 0.85) !important;
+    text-shadow: none !important;
   }
 
   div[data-testid="stExpander"] details {
@@ -62,21 +68,32 @@ def inject_neon_styles() -> None:
   }
 
   .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #00c9aa 0%, #00f5d4 50%, #5eead4 100%) !important;
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 55%, #2dd4bf 100%) !important;
     color: #041016 !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     border: none !important;
-    box-shadow: 0 0 20px rgba(0, 245, 212, 0.35), 0 4px 14px rgba(0, 0, 0, 0.35) !important;
-    transition: transform 0.12s ease, box-shadow 0.12s ease !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28) !important;
+    transition: box-shadow 0.12s ease, filter 0.12s ease !important;
   }
   .stButton > button[kind="primary"]:hover {
-    box-shadow: 0 0 28px rgba(0, 245, 212, 0.55), 0 6px 20px rgba(0, 0, 0, 0.4) !important;
-    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+    filter: brightness(1.06);
+    transform: none;
   }
 
   .stButton > button[kind="secondary"] {
-    border-color: rgba(0, 245, 212, 0.35) !important;
-    color: #b8fff4 !important;
+    border-color: rgba(100, 116, 139, 0.45) !important;
+    color: #cbd5e1 !important;
+    background: rgba(15, 23, 42, 0.5) !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    min-height: 2.1rem !important;
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+  }
+  .stButton > button[kind="secondary"]:hover {
+    border-color: rgba(94, 234, 212, 0.35) !important;
+    color: #e2e8f0 !important;
   }
 
   div[data-baseweb="select"] > div {
@@ -84,7 +101,7 @@ def inject_neon_styles() -> None:
   }
 
   .neon-card {
-    border: 1px solid rgba(0, 245, 212, 0.12);
+    border: 1px solid rgba(100, 116, 139, 0.22);
     border-radius: 14px;
     padding: 1rem 1.15rem;
     background: rgba(12, 16, 26, 0.65);
@@ -96,8 +113,8 @@ def inject_neon_styles() -> None:
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #00f5d4;
-    text-shadow: 0 0 20px rgba(0, 245, 212, 0.5);
+    color: #5eead4;
+    text-shadow: none;
     margin-bottom: 0.35rem;
   }
   .sidebar-muted {
@@ -137,23 +154,17 @@ def inject_neon_styles() -> None:
     min-width: 200px;
     border-radius: 16px;
     padding: 1.1rem 1.25rem;
-    border: 1px solid rgba(0, 245, 212, 0.22);
+    border: 1px solid rgba(100, 116, 139, 0.28);
     background: linear-gradient(155deg, rgba(18, 26, 42, 0.92) 0%, rgba(10, 14, 24, 0.88) 100%);
-    box-shadow:
-      0 0 32px rgba(0, 245, 212, 0.08),
-      inset 0 1px 0 rgba(255,255,255,0.05);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   }
   .neon-kpi.magenta {
-    border-color: rgba(244, 114, 182, 0.35);
-    box-shadow:
-      0 0 36px rgba(244, 114, 182, 0.12),
-      inset 0 1px 0 rgba(255,255,255,0.05);
+    border-color: rgba(148, 163, 184, 0.3);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   }
   .neon-kpi.gold {
-    border-color: rgba(251, 191, 36, 0.28);
-    box-shadow:
-      0 0 28px rgba(251, 191, 36, 0.1),
-      inset 0 1px 0 rgba(255,255,255,0.05);
+    border-color: rgba(148, 163, 184, 0.3);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   }
   .neon-kpi-label {
     font-size: 0.78rem;
@@ -167,25 +178,22 @@ def inject_neon_styles() -> None:
     font-size: 1.75rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    background: linear-gradient(100deg, #5eead4 0%, #67e8f9 50%, #a5f3fc 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 12px rgba(0, 245, 212, 0.35));
+    color: #5eead4 !important;
+    -webkit-text-fill-color: #5eead4 !important;
+    background: none !important;
+    filter: none !important;
   }
   .neon-kpi.magenta .neon-kpi-value {
-    background: linear-gradient(100deg, #fda4af 0%, #f472b6 45%, #e879f9 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 14px rgba(244, 114, 182, 0.4));
+    color: #f9a8d4 !important;
+    -webkit-text-fill-color: #f9a8d4 !important;
+    background: none !important;
+    filter: none !important;
   }
   .neon-kpi.gold .neon-kpi-value {
-    background: linear-gradient(100deg, #fde68a 0%, #fcd34d 50%, #fbbf24 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.35));
+    color: #fcd34d !important;
+    -webkit-text-fill-color: #fcd34d !important;
+    background: none !important;
+    filter: none !important;
   }
   .neon-kpi-sub {
     font-size: 0.82rem;
@@ -195,7 +203,7 @@ def inject_neon_styles() -> None:
   }
 
   .neon-chat-panel {
-    border: 1px solid rgba(0, 245, 212, 0.2);
+    border: 1px solid rgba(100, 116, 139, 0.25);
     border-radius: 14px;
     padding: 0.75rem 0.9rem;
     background: rgba(12, 18, 30, 0.75);
@@ -217,15 +225,14 @@ def inject_neon_styles() -> None:
   }
 
   .dash-main-title {
-    font-size: 1.55rem !important;
+    font-size: 1.5rem !important;
     font-weight: 700 !important;
     letter-spacing: -0.02em !important;
     margin: 0.15rem 0 1rem 0 !important;
-    background: linear-gradient(110deg, #00f5d4 0%, #6ee7ff 45%, #c4b5fd 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 0 18px rgba(0, 245, 212, 0.35));
+    color: #e2e8f0 !important;
+    -webkit-text-fill-color: #e2e8f0 !important;
+    background: none !important;
+    filter: none !important;
   }
   .dash-section-label {
     font-size: 0.82rem;
@@ -239,104 +246,31 @@ def inject_neon_styles() -> None:
     border-radius: 16px;
     padding: 1rem 1.1rem 1.15rem;
     min-height: 9.5rem;
-    transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    transition: border-color 0.14s ease, box-shadow 0.14s ease;
+    border: 1px solid rgba(100, 116, 139, 0.32);
     background: linear-gradient(165deg, rgba(18, 28, 48, 0.96) 0%, rgba(10, 14, 24, 0.94) 100%);
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
   .dash-tile-inner:hover {
-    transform: translateY(-2px) scale(1.01);
+    border-color: rgba(148, 163, 184, 0.45);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* Saldo: neutral Mint / Cyan */
+  /* Eine ruhige Basis; Saldo als leichter Fokus (linker Akzent) */
   .dash-tile--saldo {
-    border-color: rgba(45, 212, 191, 0.45);
-    background: linear-gradient(165deg, rgba(13, 40, 42, 0.95) 0%, rgba(10, 18, 28, 0.94) 100%);
-    box-shadow: 0 0 26px rgba(45, 212, 191, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+    border-left: 3px solid rgba(45, 212, 191, 0.65);
   }
-  .dash-tile--saldo:hover { border-color: rgba(94, 234, 212, 0.65); box-shadow: 0 0 34px rgba(45, 212, 191, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--saldo .dash-tile-title { color: #99f6e4; text-shadow: 0 0 18px rgba(45, 212, 191, 0.35); }
+  .dash-tile--saldo .dash-tile-title { color: #99f6e4; }
 
-  /* Fixkosten: Amber / Gold */
-  .dash-tile--fixkosten {
-    border-color: rgba(251, 191, 36, 0.42);
-    background: linear-gradient(165deg, rgba(45, 32, 12, 0.92) 0%, rgba(12, 14, 22, 0.95) 100%);
-    box-shadow: 0 0 26px rgba(251, 191, 36, 0.14), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--fixkosten:hover { border-color: rgba(253, 224, 71, 0.55); box-shadow: 0 0 32px rgba(251, 191, 36, 0.28), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--fixkosten .dash-tile-title { color: #fde68a; text-shadow: 0 0 16px rgba(251, 191, 36, 0.35); }
-
-  /* Einnahmen: Grün */
-  .dash-tile--income {
-    border-color: rgba(52, 211, 153, 0.5);
-    background: linear-gradient(165deg, rgba(6, 40, 28, 0.94) 0%, rgba(10, 16, 24, 0.96) 100%);
-    box-shadow: 0 0 28px rgba(52, 211, 153, 0.2), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--income:hover { border-color: rgba(110, 231, 183, 0.7); box-shadow: 0 0 36px rgba(52, 211, 153, 0.35), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--income .dash-tile-title { color: #86efac; text-shadow: 0 0 18px rgba(52, 211, 153, 0.4); }
-
-  /* Ausgaben: Rot */
-  .dash-tile--expense {
-    border-color: rgba(248, 113, 113, 0.48);
-    background: linear-gradient(165deg, rgba(48, 12, 18, 0.92) 0%, rgba(12, 14, 22, 0.96) 100%);
-    box-shadow: 0 0 28px rgba(248, 113, 113, 0.16), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--expense:hover { border-color: rgba(252, 165, 165, 0.65); box-shadow: 0 0 36px rgba(248, 113, 113, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--expense .dash-tile-title { color: #fca5a5; text-shadow: 0 0 16px rgba(248, 113, 113, 0.35); }
-
-  /* Schulden: Orange / Warnung */
-  .dash-tile--debt {
-    border-color: rgba(251, 146, 60, 0.48);
-    background: linear-gradient(165deg, rgba(48, 28, 10, 0.92) 0%, rgba(12, 14, 22, 0.96) 100%);
-    box-shadow: 0 0 26px rgba(251, 146, 60, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--debt:hover { border-color: rgba(253, 186, 116, 0.6); box-shadow: 0 0 34px rgba(251, 146, 60, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--debt .dash-tile-title { color: #fdba74; text-shadow: 0 0 16px rgba(251, 146, 60, 0.35); }
-
-  /* Strom: Elektrisch Blau */
-  .dash-tile--strom {
-    border-color: rgba(56, 189, 248, 0.5);
-    background: linear-gradient(165deg, rgba(8, 32, 52, 0.95) 0%, rgba(10, 14, 26, 0.96) 100%);
-    box-shadow: 0 0 28px rgba(56, 189, 248, 0.22), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--strom:hover { border-color: rgba(125, 211, 252, 0.65); box-shadow: 0 0 36px rgba(56, 189, 248, 0.38), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--strom .dash-tile-title { color: #7dd3fc; text-shadow: 0 0 18px rgba(56, 189, 248, 0.4); }
-
-  /* Haus: Indigo */
-  .dash-tile--haus {
-    border-color: rgba(129, 140, 248, 0.48);
-    background: linear-gradient(165deg, rgba(22, 22, 52, 0.94) 0%, rgba(10, 14, 24, 0.96) 100%);
-    box-shadow: 0 0 26px rgba(129, 140, 248, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--haus:hover { border-color: rgba(165, 180, 252, 0.6); box-shadow: 0 0 34px rgba(129, 140, 248, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--haus .dash-tile-title { color: #c4b5fd; text-shadow: 0 0 16px rgba(129, 140, 248, 0.35); }
-
-  /* Handy: Magenta / Pink */
-  .dash-tile--handy {
-    border-color: rgba(244, 114, 182, 0.48);
-    background: linear-gradient(165deg, rgba(48, 12, 36, 0.9) 0%, rgba(12, 14, 24, 0.96) 100%);
-    box-shadow: 0 0 26px rgba(244, 114, 182, 0.16), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--handy:hover { border-color: rgba(249, 168, 212, 0.65); box-shadow: 0 0 34px rgba(244, 114, 182, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--handy .dash-tile-title { color: #f9a8d4; text-shadow: 0 0 16px rgba(244, 114, 182, 0.35); }
-
-  /* Versicherungen: Violett */
-  .dash-tile--vers {
-    border-color: rgba(167, 139, 250, 0.48);
-    background: linear-gradient(165deg, rgba(32, 18, 52, 0.94) 0%, rgba(10, 14, 24, 0.96) 100%);
-    box-shadow: 0 0 26px rgba(167, 139, 250, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--vers:hover { border-color: rgba(196, 181, 253, 0.65); box-shadow: 0 0 34px rgba(167, 139, 250, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--vers .dash-tile-title { color: #d8b4fe; text-shadow: 0 0 16px rgba(167, 139, 250, 0.35); }
-
-  /* ÖPNV: Kräftiges Blau */
-  .dash-tile--oepnv {
-    border-color: rgba(96, 165, 250, 0.55);
-    background: linear-gradient(165deg, rgba(10, 36, 62, 0.95) 0%, rgba(10, 14, 26, 0.96) 100%);
-    box-shadow: 0 0 30px rgba(59, 130, 246, 0.25), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
-  }
-  .dash-tile--oepnv:hover { border-color: rgba(147, 197, 253, 0.75); box-shadow: 0 0 38px rgba(59, 130, 246, 0.4), 0 12px 28px rgba(0,0,0,0.4); }
-  .dash-tile--oepnv .dash-tile-title { color: #93c5fd; text-shadow: 0 0 18px rgba(96, 165, 250, 0.45); }
+  .dash-tile--fixkosten .dash-tile-title { color: #fcd34d; }
+  .dash-tile--income .dash-tile-title { color: #86efac; }
+  .dash-tile--expense .dash-tile-title { color: #fca5a5; }
+  .dash-tile--debt .dash-tile-title { color: #fdba74; }
+  .dash-tile--strom .dash-tile-title { color: #7dd3fc; }
+  .dash-tile--haus .dash-tile-title { color: #c4b5fd; }
+  .dash-tile--handy .dash-tile-title { color: #f9a8d4; }
+  .dash-tile--vers .dash-tile-title { color: #d8b4fe; }
+  .dash-tile--oepnv .dash-tile-title { color: #93c5fd; }
 
   .dash-tile-title {
     font-size: 0.95rem;
