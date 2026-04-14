@@ -25,9 +25,11 @@ def _money_class(v: float) -> str:
     return "dash-money-zero"
 
 
-def _tile_html(title: str, body_html: str) -> str:
+def _tile_html(title: str, body_html: str, variant: str) -> str:
+    """variant: saldo | fixkosten | income | expense | debt | strom | haus | handy | vers | oepnv"""
     return (
-        f'<div class="dash-tile-inner"><div class="dash-tile-title">{title}</div>'
+        f'<div class="dash-tile-inner dash-tile--{variant}">'
+        f'<div class="dash-tile-title">{title}</div>'
         f'<div class="dash-tile-body">{body_html}</div></div>'
     )
 
@@ -103,9 +105,9 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
     )
 
     row3(
-        _tile_html("Saldo (Monat)", saldo_body),
-        _tile_html("Fixkosten-Saldo", fix_body),
-        _tile_html("Einnahmen (Monat)", ein_body),
+        _tile_html("Saldo (Monat)", saldo_body, "saldo"),
+        _tile_html("Fixkosten-Saldo", fix_body, "fixkosten"),
+        _tile_html("Einnahmen (Monat)", ein_body, "income"),
     )
     c_btn = st.columns(3)
     with c_btn[0]:
@@ -119,9 +121,9 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
             _open_tile("einnahmen")
 
     row3(
-        _tile_html("Ausgaben (Monat)", aus_body),
-        _tile_html("Schulden", sch_body),
-        _tile_html(f"Stromkosten {mets.strom_year}", strom_body),
+        _tile_html("Ausgaben (Monat)", aus_body, "expense"),
+        _tile_html("Schulden", sch_body, "debt"),
+        _tile_html(f"Stromkosten {mets.strom_year}", strom_body, "strom"),
     )
     c2 = st.columns(3)
     with c2[0]:
@@ -141,7 +143,11 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
     )
     cat_b = f"<p><strong>{_fmt(mets.cat_handy_eur)}</strong></p><p>Handy</p>"
     cat_c = f"<p><strong>{_fmt(mets.cat_vers_eur)}</strong></p><p>Versicherungen</p>"
-    row3(_tile_html("Haus & Internet", cat_a), _tile_html("Handy", cat_b), _tile_html("Versicherungen", cat_c))
+    row3(
+        _tile_html("Haus & Internet", cat_a, "haus"),
+        _tile_html("Handy", cat_b, "handy"),
+        _tile_html("Versicherungen", cat_c, "vers"),
+    )
     c3 = st.columns(3)
     with c3[0]:
         if st.button("Details", key="dash_btn_haus", use_container_width=True):
@@ -155,7 +161,7 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
 
     oep = f"<p><strong>{_fmt(mets.cat_oepnv_eur)}</strong></p><p>ÖPNV (Schriftverkehr + Stichworte)</p>"
     st.markdown(
-        f'<div class="dash-grid-1"><div class="dash-tile-outer">{_tile_html("ÖPNV", oep)}</div></div>',
+        f'<div class="dash-grid-1"><div class="dash-tile-outer">{_tile_html("ÖPNV", oep, "oepnv")}</div></div>',
         unsafe_allow_html=True,
     )
     if st.button("Details", key="dash_btn_oepnv", use_container_width=True):

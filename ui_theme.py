@@ -236,24 +236,108 @@ def inject_neon_styles() -> None:
     margin: 1.25rem 0 0.5rem 0;
   }
   .dash-tile-inner {
-    border: 1px solid rgba(0, 245, 212, 0.22);
     border-radius: 16px;
     padding: 1rem 1.1rem 1.15rem;
     min-height: 9.5rem;
-    background: linear-gradient(165deg, rgba(18, 28, 48, 0.95) 0%, rgba(10, 14, 24, 0.92) 100%);
-    box-shadow:
-      0 0 28px rgba(0, 245, 212, 0.12),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
     transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: linear-gradient(165deg, rgba(18, 28, 48, 0.96) 0%, rgba(10, 14, 24, 0.94) 100%);
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
   .dash-tile-inner:hover {
     transform: translateY(-2px) scale(1.01);
-    border-color: rgba(0, 245, 212, 0.45);
-    box-shadow:
-      0 0 36px rgba(0, 245, 212, 0.28),
-      0 10px 28px rgba(0, 0, 0, 0.35),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
+
+  /* Saldo: neutral Mint / Cyan */
+  .dash-tile--saldo {
+    border-color: rgba(45, 212, 191, 0.45);
+    background: linear-gradient(165deg, rgba(13, 40, 42, 0.95) 0%, rgba(10, 18, 28, 0.94) 100%);
+    box-shadow: 0 0 26px rgba(45, 212, 191, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--saldo:hover { border-color: rgba(94, 234, 212, 0.65); box-shadow: 0 0 34px rgba(45, 212, 191, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--saldo .dash-tile-title { color: #99f6e4; text-shadow: 0 0 18px rgba(45, 212, 191, 0.35); }
+
+  /* Fixkosten: Amber / Gold */
+  .dash-tile--fixkosten {
+    border-color: rgba(251, 191, 36, 0.42);
+    background: linear-gradient(165deg, rgba(45, 32, 12, 0.92) 0%, rgba(12, 14, 22, 0.95) 100%);
+    box-shadow: 0 0 26px rgba(251, 191, 36, 0.14), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--fixkosten:hover { border-color: rgba(253, 224, 71, 0.55); box-shadow: 0 0 32px rgba(251, 191, 36, 0.28), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--fixkosten .dash-tile-title { color: #fde68a; text-shadow: 0 0 16px rgba(251, 191, 36, 0.35); }
+
+  /* Einnahmen: Grün */
+  .dash-tile--income {
+    border-color: rgba(52, 211, 153, 0.5);
+    background: linear-gradient(165deg, rgba(6, 40, 28, 0.94) 0%, rgba(10, 16, 24, 0.96) 100%);
+    box-shadow: 0 0 28px rgba(52, 211, 153, 0.2), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--income:hover { border-color: rgba(110, 231, 183, 0.7); box-shadow: 0 0 36px rgba(52, 211, 153, 0.35), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--income .dash-tile-title { color: #86efac; text-shadow: 0 0 18px rgba(52, 211, 153, 0.4); }
+
+  /* Ausgaben: Rot */
+  .dash-tile--expense {
+    border-color: rgba(248, 113, 113, 0.48);
+    background: linear-gradient(165deg, rgba(48, 12, 18, 0.92) 0%, rgba(12, 14, 22, 0.96) 100%);
+    box-shadow: 0 0 28px rgba(248, 113, 113, 0.16), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--expense:hover { border-color: rgba(252, 165, 165, 0.65); box-shadow: 0 0 36px rgba(248, 113, 113, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--expense .dash-tile-title { color: #fca5a5; text-shadow: 0 0 16px rgba(248, 113, 113, 0.35); }
+
+  /* Schulden: Orange / Warnung */
+  .dash-tile--debt {
+    border-color: rgba(251, 146, 60, 0.48);
+    background: linear-gradient(165deg, rgba(48, 28, 10, 0.92) 0%, rgba(12, 14, 22, 0.96) 100%);
+    box-shadow: 0 0 26px rgba(251, 146, 60, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--debt:hover { border-color: rgba(253, 186, 116, 0.6); box-shadow: 0 0 34px rgba(251, 146, 60, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--debt .dash-tile-title { color: #fdba74; text-shadow: 0 0 16px rgba(251, 146, 60, 0.35); }
+
+  /* Strom: Elektrisch Blau */
+  .dash-tile--strom {
+    border-color: rgba(56, 189, 248, 0.5);
+    background: linear-gradient(165deg, rgba(8, 32, 52, 0.95) 0%, rgba(10, 14, 26, 0.96) 100%);
+    box-shadow: 0 0 28px rgba(56, 189, 248, 0.22), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--strom:hover { border-color: rgba(125, 211, 252, 0.65); box-shadow: 0 0 36px rgba(56, 189, 248, 0.38), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--strom .dash-tile-title { color: #7dd3fc; text-shadow: 0 0 18px rgba(56, 189, 248, 0.4); }
+
+  /* Haus: Indigo */
+  .dash-tile--haus {
+    border-color: rgba(129, 140, 248, 0.48);
+    background: linear-gradient(165deg, rgba(22, 22, 52, 0.94) 0%, rgba(10, 14, 24, 0.96) 100%);
+    box-shadow: 0 0 26px rgba(129, 140, 248, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--haus:hover { border-color: rgba(165, 180, 252, 0.6); box-shadow: 0 0 34px rgba(129, 140, 248, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--haus .dash-tile-title { color: #c4b5fd; text-shadow: 0 0 16px rgba(129, 140, 248, 0.35); }
+
+  /* Handy: Magenta / Pink */
+  .dash-tile--handy {
+    border-color: rgba(244, 114, 182, 0.48);
+    background: linear-gradient(165deg, rgba(48, 12, 36, 0.9) 0%, rgba(12, 14, 24, 0.96) 100%);
+    box-shadow: 0 0 26px rgba(244, 114, 182, 0.16), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--handy:hover { border-color: rgba(249, 168, 212, 0.65); box-shadow: 0 0 34px rgba(244, 114, 182, 0.3), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--handy .dash-tile-title { color: #f9a8d4; text-shadow: 0 0 16px rgba(244, 114, 182, 0.35); }
+
+  /* Versicherungen: Violett */
+  .dash-tile--vers {
+    border-color: rgba(167, 139, 250, 0.48);
+    background: linear-gradient(165deg, rgba(32, 18, 52, 0.94) 0%, rgba(10, 14, 24, 0.96) 100%);
+    box-shadow: 0 0 26px rgba(167, 139, 250, 0.18), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--vers:hover { border-color: rgba(196, 181, 253, 0.65); box-shadow: 0 0 34px rgba(167, 139, 250, 0.32), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--vers .dash-tile-title { color: #d8b4fe; text-shadow: 0 0 16px rgba(167, 139, 250, 0.35); }
+
+  /* ÖPNV: Kräftiges Blau */
+  .dash-tile--oepnv {
+    border-color: rgba(96, 165, 250, 0.55);
+    background: linear-gradient(165deg, rgba(10, 36, 62, 0.95) 0%, rgba(10, 14, 26, 0.96) 100%);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.25), 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .dash-tile--oepnv:hover { border-color: rgba(147, 197, 253, 0.75); box-shadow: 0 0 38px rgba(59, 130, 246, 0.4), 0 12px 28px rgba(0,0,0,0.4); }
+  .dash-tile--oepnv .dash-tile-title { color: #93c5fd; text-shadow: 0 0 18px rgba(96, 165, 250, 0.45); }
+
   .dash-tile-title {
     font-size: 0.95rem;
     font-weight: 700;
