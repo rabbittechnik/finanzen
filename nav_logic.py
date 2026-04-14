@@ -5,12 +5,12 @@ from typing import Any
 
 # internal keys -> German labels (sidebar)
 NAV_LABELS: dict[str, str] = {
-    "home": "Saldo",
+    "home": "Home",
     "rechnungen": "Rechnungen",
     "mahnungen": "Mahnungen",
     "lohnabrechnungen": "Lohnabrechnungen",
     "schriftverkehr": "Schriftverkehr",
-    "amtsgericht": "Amtsschreiben",
+    "amtsgericht": "Amtsgericht",
     "versicherungsscheine": "Versicherungsscheine",
     "stromanbieter": "Stromanbieter",
     "haustelefon_internet": "Haustelefon/Internet",

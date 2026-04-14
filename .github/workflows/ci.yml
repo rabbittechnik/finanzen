@@ -20,6 +20,6 @@ jobs:
           pip install -r requirements.txt
       - name: Syntax check
         run: |
-          python -m py_compile app.py asgi.py auth_middleware.py config.py dashboard_ui.py db.py docu_logging.py download_button.py email_draft_llm.py email_smtp.py export_bulk.py extract_llm.py import_jobs.py ingest.py organizer_chat.py privacy_notes.py
+          python -m py_compile app.py asgi.py auth_middleware.py config.py db.py doc_context.py docu_logging.py download_button.py email_draft_llm.py email_smtp.py export_bulk.py extract_llm.py fin_dashboard.py fin_layout.py fin_ui_theme.py import_jobs.py ingest.py organizer_chat.py privacy_notes.py
       - name: Pytest
         run: pytest tests/ -q

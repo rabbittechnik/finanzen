@@ -12,7 +12,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT, LUMO_AVATAR_PATH
+from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
 from download_button import render_document_download
 from email_draft_llm import EMAIL_SCENARIO_CHOICES, run_email_draft
 from email_smtp import send_email_smtp, smtp_configured
@@ -29,12 +29,10 @@ from db import (
     get_extraction,
     init_db,
     link_document_to_matter,
-    list_archived_documents,
     list_documents,
     list_documents_for_nav,
     list_matters,
     list_persons,
-    list_reference_key_clusters,
     matter_ids_for_document,
     set_document_archived,
     set_document_owner,
@@ -47,13 +45,14 @@ from db import (
 from home_finance import is_expense_monthly_prompt_candidate
 from nav_logic import NAV_KEYS_ORDER, NAV_LABELS, _norm_kind
 from import_jobs import import_inbox_pdfs, import_one_pdf, run_llm_on_document
-from privacy_notes import PRIVACY_UI_DE
 from home_overlay import maybe_show_home_overlay
 from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from pwa_inject import inject_pwa_tags
-from dashboard_ui import render_finance_dashboard
+from doc_context import filter_documents_by_context, normalize_docu_context_key
+from fin_dashboard import render_fin_dashboard
+from fin_layout import render_lumo_column, render_main_top_bar, render_navigation_column
+from fin_ui_theme import inject_fin_ui_styles
 from household_aggregate import aggregate_owner_totals
-from ui_theme import inject_neon_styles
 
 load_dotenv()
 
@@ -133,202 +132,12 @@ def _fmt_de_eur(v: float) -> str:
     return f"{v:.2f} €".replace(".", ",")
 
 
-def _lumo_avatar_for_chat() -> str:
-    """Pfad zum Lumo-Bild für st.chat_message(avatar=…), sonst Fallback."""
-    try:
-        p = LUMO_AVATAR_PATH.resolve()
-        if p.is_file():
-            return str(p)
-    except OSError:
-        pass
-    return "✨"
 
 
-def _render_sidebar_lumo_brand() -> None:
-    """Kopfzeile Sidebar wie Mockup: Lumo-Avatar + Finanz-Assistent."""
-    c_img, c_txt = st.columns([0.9, 2.2])
-    with c_img:
-        if LUMO_AVATAR_PATH.is_file():
-            st.image(str(LUMO_AVATAR_PATH.resolve()), width=72)
-        else:
-            st.markdown("### ✨")
-    with c_txt:
-        st.markdown(
-            '<p class="docu-lumo-title">Financ-Assistent</p>'
-            '<p class="docu-lumo-sub">Wie kann ich Ihnen heute helfen?</p>',
-            unsafe_allow_html=True,
-        )
-    st.divider()
 
 
-def _render_sidebar_mockup_nav() -> None:
-    """Vertikale Navigation (Mockup: Liste mit aktivem türkisem Akzent)."""
-    st.markdown('<p class="docu-nav-heading">Menü</p>', unsafe_allow_html=True)
-    nav_options = list(NAV_KEYS_ORDER)
-    if "sidebar_nav_choice" not in st.session_state:
-        st.session_state.sidebar_nav_choice = st.session_state.get("current_nav", "home")
-    picked = st.radio(
-        "Bereich",
-        nav_options,
-        format_func=lambda k: NAV_LABELS[k],
-        key="sidebar_nav_choice",
-        label_visibility="collapsed",
-    )
-    st.session_state.current_nav = picked
 
 
-def _render_sidebar_tools_expander() -> None:
-    """Kontext, Upload, Hilfe, Suche, Papierkorb — wie zuvor, gebündelt unterhalb der Navigation."""
-    _render_context_switcher()
-    _render_sidebar_pdf_upload()
-    st.divider()
-    _render_sidebar_update_button()
-    with st.expander("Hilfe & Tipps", expanded=False):
-        st.markdown(
-            '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
-            "**App installieren:** In Chrome/Edge über das **Install-Symbol** in der Adressleiste "
-            "(oder Menü „App installieren“) — eigenes Fenster ohne Browser-Tabs.</p>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            '<p class="sidebar-muted" style="margin:0 0 0.65rem 0;">'
-            "Nach KI-Analyse werden Dokumente den Ordnern zugeordnet. "
-            "Stromanbieter: Unterordner = Anbietername (Wechsel = neuer Ordner).</p>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            '<p class="sidebar-muted" style="margin:0;">'
-            "Unterlagen bleiben auf diesem Server. **PDF hochladen** (oben); "
-            "gemeinsamer Server-Posteingang im Tab **Posteingang**.</p>",
-            unsafe_allow_html=True,
-        )
-    st.divider()
-    key_set = bool(os.environ.get("OPENAI_API_KEY"))
-    if key_set:
-        st.markdown('<span class="pill-ok">KI-Verbindung aktiv</span>', unsafe_allow_html=True)
-    else:
-        st.markdown(
-            '<span class="pill-warn">KI: Schlüssel fehlt</span>',
-            unsafe_allow_html=True,
-        )
-        st.caption(
-            "Lege `OPENAI_API_KEY` in den Einstellungen deines Hostings "
-            "(z. B. Railway → Variables) an."
-        )
-    st.caption(f"Pro Analyse maximal ca. {LLM_TEXT_CHAR_LIMIT:,} Zeichen Text an die KI.")
-    app_ver = (os.environ.get("DOCU_APP_VERSION") or "").strip()
-    if app_ver:
-        st.caption(f"Version: **{app_ver}**")
-    if smtp_configured():
-        st.markdown("**E-Mail (SMTP)**")
-        st.caption("Sendet eine kurze Testmail an **DOCU_SMTP_FROM** (meist deine eigene Adresse).")
-        _render_smtp_testmail_button(
-            button_key="sidebar_smtp_test_mail",
-            label="Testmail an mich senden",
-            use_full_width=True,
-        )
-    st.divider()
-    st.checkbox(
-        "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
-        key="auto_matter_after_llm",
-        help=(
-            "Wenn die KI eine Kunden- oder Vertragsnummer findet, werden alle Dokumente "
-            "mit derselben Kennung einem Vorgang zugeordnet (neu oder bestehend)."
-        ),
-    )
-    st.divider()
-    st.markdown("**Suche**")
-    st.text_input(
-        "Suchbegriff",
-        key="global_doc_search_input",
-        placeholder="Dateiname, Absender, Betreff, Kennung …",
-        label_visibility="collapsed",
-    )
-    if st.button("Treffer anzeigen", key="global_doc_search_btn"):
-        st.session_state["doc_search_q"] = (
-            st.session_state.get("global_doc_search_input") or ""
-        ).strip().lower()
-    dq = (st.session_state.get("doc_search_q") or "").strip()
-    if dq:
-        hits: list[dict[str, Any]] = []
-        for r in filter_documents_by_context(list_documents(), _docu_context_key()):
-            parts = [
-                str(r.get("original_filename") or "").lower(),
-                str(r.get("summary_de") or "").lower(),
-                str(r.get("sender_name") or "").lower(),
-                str(r.get("subject") or "").lower(),
-                str(r.get("sender_role") or "").lower(),
-                str(r.get("document_date") or "").lower(),
-            ]
-            try:
-                refs = json.loads(r.get("reference_ids_json") or "[]")
-                if isinstance(refs, list):
-                    for ref in refs:
-                        if isinstance(ref, dict):
-                            parts.append(str(ref.get("value") or "").lower())
-            except json.JSONDecodeError:
-                pass
-            blob = " ".join(parts)
-            if dq in blob:
-                hits.append(r)
-        if not hits:
-            st.caption("Keine Treffer.")
-        else:
-            st.caption(f"{len(hits)} Treffer (max. 30 angezeigt).")
-            for r in hits[:30]:
-                label = f"#{r['id']} — {r.get('original_filename') or '?'}"
-                if st.button(label, key=f"srch_go_{r['id']}"):
-                    nf = (r.get("nav_folder") or "").strip()
-                    if nf not in NAV_KEYS_ORDER:
-                        nf = "home"
-                    st.session_state["current_nav"] = nf
-                    st.session_state["jump_doc_id"] = int(r["id"])
-                    st.session_state["sidebar_nav_choice"] = nf
-                    st.rerun()
-
-    with st.expander("Papierkorb (archiviert)", expanded=False):
-        arch = list_archived_documents()
-        if not arch:
-            st.caption("Keine archivierten Dokumente.")
-        else:
-            for r in arch[:40]:
-                col_a, col_b = st.columns([3, 1])
-                with col_a:
-                    st.caption(f"#{r['id']} — {r.get('original_filename') or '?'}")
-                with col_b:
-                    if st.button("Wiederherstellen", key=f"unarch_{r['id']}"):
-                        set_document_archived(int(r["id"]), False)
-                        st.rerun()
-
-    with st.expander("Gleiche Kennung (mehrere Dokumente)", expanded=False):
-        clusters = list_reference_key_clusters(limit=35)
-        if not clusters:
-            st.caption("Keine Kennung mit mehreren aktiven Dokumenten.")
-        else:
-            st.caption(
-                "Mehrere Belege teilen dieselbe extrahierte Kennung — prüfen, ob Dublette oder beabsichtigt."
-            )
-            for ci, c in enumerate(clusters):
-                kv = (c.get("key_value") or "")[:72]
-                st.markdown(
-                    f"**{c.get('id_type')}** · `{kv}` — **{c.get('doc_count')}** Dokument(e)"
-                )
-                for j, did in enumerate(c["document_ids"][:8]):
-                    if st.button(f"Dokument #{did} öffnen", key=f"rkclus_{ci}_{j}_{did}"):
-                        drow = get_document(did)
-                        nf = "home"
-                        if drow:
-                            ext0 = get_extraction(did)
-                            if ext0 and (ext0.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
-                                nf = str(ext0.get("nav_folder")).strip()
-                        st.session_state["current_nav"] = nf
-                        st.session_state["sidebar_nav_choice"] = nf
-                        st.session_state["jump_doc_id"] = int(did)
-                        st.rerun()
-
-    st.divider()
-    with st.expander("Datenschutz"):
-        st.markdown(PRIVACY_UI_DE)
 
 
 def _enqueue_payment_prompt(doc_id: int) -> None:
@@ -343,32 +152,14 @@ def _enqueue_monthly_expense_prompt(doc_id: int) -> None:
         q.append(doc_id)
 
 
-def _normalize_docu_context_key(raw: str | None) -> str:
-    r = (raw or "all").strip()
-    if r.startswith("household:"):
-        return "household"
-    return r
+
+
+
+
 
 
 def _docu_context_key() -> str:
-    return _normalize_docu_context_key(str(st.session_state.get("docu_context_key") or "all"))
-
-
-def filter_documents_by_context(
-    rows: list[dict[str, Any]], context_key: str | None
-) -> list[dict[str, Any]]:
-    ck = _normalize_docu_context_key(context_key)
-    if ck in ("all", "household"):
-        return rows
-    if ck.startswith("person:"):
-        pid = int(ck.split(":", 1)[1])
-        return [
-            r
-            for r in rows
-            if (r.get("owner_kind") or "") == "person"
-            and int(r.get("owner_person_id") or 0) == pid
-        ]
-    return rows
+    return normalize_docu_context_key(str(st.session_state.get("docu_context_key") or "household"))
 
 
 def _enqueue_owner_prompt(doc_id: int) -> None:
@@ -439,38 +230,6 @@ def _document_owner_label(doc: dict[str, Any]) -> str:
     return "—"
 
 
-def _render_context_switcher() -> None:
-    opts: list[tuple[str, str]] = [
-        ("Alle Dokumente", "all"),
-        ("Haushalt (Gesamt, nur Auswertung)", "household"),
-    ]
-    for p in list_persons():
-        lab = str(p.get("name") or "Person")
-        if p.get("is_primary"):
-            lab = f"{lab} (Ich)"
-        opts.append((lab, f"person:{int(p['id'])}"))
-    keys = [k for _, k in opts]
-    labels_map = {k: lab for lab, k in opts}
-    cur = _docu_context_key()
-    idx = keys.index(cur) if cur in keys else 0
-    picked = st.selectbox(
-        "Ansicht / Kontext",
-        keys,
-        index=idx,
-        format_func=lambda k: labels_map.get(k, k),
-        key="docu_context_pick",
-        help=(
-            "„Haushalt“: alle Belege aller Personen (virtuelle Gesamtansicht, keine Haushalts-Speicherung). "
-            "„Person“: nur deren Dokumente."
-        ),
-    )
-    st.session_state.docu_context_key = picked
-    st.checkbox(
-        "Neue Imports der gewählten Person zuordnen",
-        value=False,
-        key="docu_assign_import_to_context",
-        help="Nur wirksam, wenn eine Person (nicht „Alle“/„Haushalt“) gewählt ist.",
-    )
 
 
 def _render_owner_assignment_queue() -> None:
@@ -544,8 +303,7 @@ def _render_payment_status_queue() -> None:
         st.rerun()
         return
     st.markdown(
-        '<div class="neon-card" style="border-color:rgba(251,191,36,0.35);margin-bottom:1rem;">'
-        "<strong style='color:#fcd34d;'>Zahlstatus</strong> — bitte kurz angeben "
+        '<div class="fin-callout-warn"><strong>Zahlstatus</strong> — bitte kurz angeben '
         f"(Dokument <span style='color:#a5f3fc;'>#{did}</span> · "
         f"{doc.get('original_filename', '')})</div>",
         unsafe_allow_html=True,
@@ -591,8 +349,7 @@ def _render_monthly_expense_queue() -> None:
         st.rerun()
         return
     st.markdown(
-        '<div class="neon-card" style="border-color:rgba(110,231,255,0.35);margin-bottom:1rem;">'
-        "<strong style='color:#7dd3fc;'>Monatsausgaben</strong> — soll dieser Beleg in die "
+        '<div class="fin-callout-info"><strong>Monatsausgaben</strong> — soll dieser Beleg in die '
         f"<strong>monatlichen Ausgaben</strong> auf der Startseite einfließen? "
         f"(Dokument <span style='color:#a5f3fc;'>#{did}</span> · "
         f"{doc.get('original_filename', '')})</div>",
@@ -619,151 +376,14 @@ def _render_monthly_expense_queue() -> None:
             st.rerun()
 
 
-def _render_reload_button(button_id: str, *, show_caption: bool = True, height: int = 52) -> None:
-    """Vollständiger Browser-Reload (HTML-Button wegen zuverlässigem Voll-Reload)."""
-    if show_caption:
-        st.caption("Nach Deploy: Seite neu laden.")
-    safe_id = "".join(c for c in button_id if c.isalnum() or c in ("-", "_"))
-    components.html(
-        f"""
-<div style="font-family:system-ui,sans-serif;margin:0;">
-  <button type="button" id="{safe_id}" title="Neueste Version vom Server laden"
-    style="width:100%;padding:0.45rem 0.65rem;border-radius:10px;cursor:pointer;font-weight:600;
-    font-size:0.9rem;color:#e2e8f0;background:#1e293b;border:1px solid rgba(148,163,184,0.4);
-    box-shadow:0 1px 3px rgba(0,0,0,0.25);">
-    Update
-  </button>
-</div>
-<script>
-(function(){{
-  var b = document.getElementById({json.dumps(safe_id)});
-  if (!b) return;
-  b.addEventListener('click', function(){{
-    try {{ (window.top || window.parent || window).location.reload(); }}
-    catch(e) {{ window.location.reload(); }}
-  }});
-}})();
-</script>
-        """,
-        height=height,
-    )
 
 
-def _render_sidebar_update_button() -> None:
-    """Sidebar: Reload-Button."""
-    _render_reload_button("docu-app-reload-btn", show_caption=True)
 
 
-def _render_smtp_testmail_button(
-    *, button_key: str, label: str, use_full_width: bool
-) -> None:
-    if not smtp_configured():
-        return
-    if st.button(
-        label,
-        key=button_key,
-        type="secondary",
-        use_container_width=use_full_width,
-    ):
-        frm = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
-        if not frm:
-            st.error("`DOCU_SMTP_FROM` fehlt in der Umgebung.")
-        else:
-            try:
-                with st.spinner("Sende Testmail …"):
-                    send_email_smtp(
-                        to_addr=frm,
-                        subject="Docu-Organizer — SMTP-Test",
-                        body=(
-                            "Hallo,\n\n"
-                            "dies ist eine automatische Testmail aus dem Dokumenten-Organizer "
-                            "(Testmail-Button).\n\n"
-                            "Wenn du diese Nachricht liest, funktioniert SMTP (z. B. Gmail) korrekt.\n\n"
-                            "— Docu-Organizer (Test)\n"
-                        ),
-                    )
-                st.success(f"Testmail gesendet an: {frm}")
-            except Exception as e:
-                st.error(str(e))
 
 
-def _render_main_header_bar(*, nav_is_home: bool) -> None:
-    """Mockup: Titel links, Aktionsschaltflächen rechts (Refresh, Testmail, Hinweis)."""
-    q0, q1, q2, q3 = st.columns([4.2, 1, 1, 1], gap="small")
-    with q0:
-        st.markdown(
-            '<span data-docu-quick-actions="1" aria-hidden="true" '
-            'style="position:absolute;width:0;height:0;overflow:hidden"></span>',
-            unsafe_allow_html=True,
-        )
-        title = (
-            "Finanzen — Dokumenten-Organizer" if nav_is_home else "Dokumenten-Organizer"
-        )
-        st.markdown(
-            f'<p class="docu-main-header-title">{title}</p>',
-            unsafe_allow_html=True,
-        )
-    with q1:
-        _render_reload_button("docu-app-reload-btn-main", show_caption=False, height=40)
-    with q2:
-        if smtp_configured():
-            _render_smtp_testmail_button(
-                button_key="main_smtp_test_mail",
-                label="✉",
-                use_full_width=True,
-            )
-        else:
-            st.caption("")
-    with q3:
-        try:
-            with st.popover("⚙"):
-                st.caption(
-                    "Kontext, PDF-Upload, Hilfe und Suche: **Kontext · PDF · Werkzeuge** "
-                    "in der linken Sidebar."
-                )
-        except Exception:
-            st.caption("⚙")
 
 
-def _render_sidebar_pdf_upload() -> None:
-    """PDF-Upload in der linken Sidebar — Hauptbereich entlasten."""
-    st.divider()
-    st.markdown(
-        '<p class="sidebar-brand" style="font-size:0.9rem;">PDF hochladen</p>',
-        unsafe_allow_html=True,
-    )
-    st.caption("Hier ablegen oder **Upload starten** — Server-Ordner im Tab **Posteingang**.")
-    up = st.file_uploader(
-        "PDF-Dateien",
-        type=["pdf"],
-        accept_multiple_files=True,
-        label_visibility="collapsed",
-        key="sidebar_pdf_uploader",
-    )
-    auto_import = st.checkbox(
-        "Hochgeladene PDFs sofort einlesen",
-        value=True,
-        key="sidebar_pdf_auto_import",
-    )
-    if up:
-        if st.button("Upload starten", type="primary", key="sidebar_pdf_upload_btn"):
-            for f in up:
-                path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
-                st.caption(f"Gespeichert: `{path.name}`")
-                if auto_import:
-                    with st.spinner(f"Import: {path.name}…"):
-                        r = import_one_pdf(path)
-                    if r["status"] == "duplicate":
-                        st.warning(f'Duplikat: **{r["filename"]}**')
-                    elif r["status"] == "error":
-                        st.error(r.get("message", "Fehler"))
-                    else:
-                        ocr = " (wenig Text – vermutlich Scan)" if r.get("needs_ocr") else ""
-                        st.success(f'Importiert: **{r["filename"]}** → ID {r["id"]}{ocr}')
-                        rid = int(r["id"])
-                        _apply_import_owner(rid)
-                        _enqueue_payment_prompt(rid)
-            st.rerun()
 
 
 def _trim_chat_messages(msgs: list[dict[str, Any]], *, keep_non_system: int = 24) -> list[dict[str, Any]]:
@@ -785,33 +405,6 @@ def _append_chat_activity(text: str) -> None:
     )
 
 
-def _apply_organizer_chat_tool_effects(effects: list[dict[str, Any]]) -> None:
-    """Nach KI-Chat: show_document → Navigation + Dokumentauswahl."""
-    for eff in effects:
-        if eff.get("action") != "show_document":
-            continue
-        did = int(eff["document_id"])
-        dev = str(eff.get("target_device") or "pc").lower()
-        doc = get_document(did)
-        if not doc:
-            continue
-        ext = get_extraction(did)
-        nf = "home"
-        if ext and (ext.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
-            nf = str(ext.get("nav_folder")).strip()
-        st.session_state["current_nav"] = nf
-        st.session_state["sidebar_nav_choice"] = nf
-        st.session_state["jump_doc_id"] = did
-        if dev == "tv":
-            st.session_state["docu_pending_device_hint"] = (
-                "**Ausgabe TV:** Dokument ist hier vorgewählt. Auf dem Fernseher dieselbe App öffnen und "
-                f"**Dokument #{did}** unter **{NAV_LABELS.get(nf, nf)}** ansteuern."
-            )
-        elif dev == "tablet":
-            st.session_state["docu_pending_device_hint"] = (
-                f"**Ausgabe Tablet:** Dokument **#{did}** ist auf diesem Gerät vorgewählt — auf dem Tablet "
-                "dieselbe Ansicht öffnen."
-            )
 
 
 def _after_llm_document_hooks(doc_id: int, _out: dict[str, Any] | None) -> None:
@@ -901,90 +494,6 @@ def _drain_pending_llm_job() -> None:
         st.rerun()
 
 
-def _render_assistant_chat() -> None:
-    """KI-Chat unten in der Sidebar (Mockup); Eingabe per Formular statt globalem chat_input."""
-    lumo_av = _lumo_avatar_for_chat()
-    sb_panel = int(os.environ.get("DOCU_SIDEBAR_CHAT_PANEL", "360"))
-    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", "200"))
-    if not os.environ.get("OPENAI_API_KEY"):
-        st.markdown(
-            '<div class="docu-ki-chat-head">'
-            '<div class="docu-openai-mark" aria-hidden="true">AI</div>'
-            '<span class="label">KI-Chat</span></div>'
-            '<p class="sidebar-muted" style="margin:0 0 0.5rem 0;font-size:0.82rem;">'
-            "Assistent — Chat benötigt <code>OPENAI_API_KEY</code>.</p>",
-            unsafe_allow_html=True,
-        )
-        if LUMO_AVATAR_PATH.is_file():
-            st.image(str(LUMO_AVATAR_PATH.resolve()), width=56)
-        return
-    _ensure_chat_messages()
-    st.markdown(
-        '<div class="docu-ki-chat-head">'
-        '<div class="docu-openai-mark" aria-hidden="true">AI</div>'
-        '<span class="label">KI-Chat</span></div>',
-        unsafe_allow_html=True,
-    )
-    try:
-        panel = st.container(height=sb_panel, border=False)
-    except TypeError:
-        panel = st.container()
-    with panel:
-        if st.session_state.get("docu_pending_device_hint"):
-            st.info(str(st.session_state.pop("docu_pending_device_hint")), icon="📺")
-        try:
-            scroll = st.container(height=sb_msg, border=True)
-        except TypeError:
-            scroll = st.container()
-        with scroll:
-            for m in st.session_state.ai_chat_messages:
-                if m.get("role") == "system":
-                    continue
-                role = m.get("role") or "assistant"
-                if role == "assistant":
-                    with st.chat_message("assistant", avatar=lumo_av):
-                        st.markdown(m.get("content") or "")
-                else:
-                    with st.chat_message(role):
-                        st.markdown(m.get("content") or "")
-        clear_chat = st.button(
-            "Chat leeren",
-            key="organizer_chat_clear",
-            help="Alle Nachrichten löschen (Verlauf im Panel)",
-            use_container_width=True,
-        )
-        with st.form("organizer_chat_sidebar_form", clear_on_submit=True):
-            prompt = st.text_input(
-                "Nachricht",
-                label_visibility="collapsed",
-                placeholder="Schreibe eine Nachricht …",
-            )
-            submitted = st.form_submit_button("Senden", type="primary", use_container_width=True)
-
-    if clear_chat:
-        st.session_state.ai_chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        st.rerun()
-
-    if submitted and (prompt or "").strip():
-        _ensure_chat_messages()
-        st.session_state.ai_chat_messages.append({"role": "user", "content": (prompt or "").strip()})
-        st.session_state.ai_chat_messages = _trim_chat_messages(
-            st.session_state.ai_chat_messages, keep_non_system=28
-        )
-        try:
-            with st.spinner("Lumo antwortet …"):
-                chat_effects: list[dict[str, Any]] = []
-                reply = run_organizer_chat(
-                    st.session_state.ai_chat_messages,
-                    tool_effects=chat_effects,
-                )
-                _apply_organizer_chat_tool_effects(chat_effects)
-            st.session_state.ai_chat_messages.append({"role": "assistant", "content": reply})
-        except Exception as e:
-            st.session_state.ai_chat_messages.append(
-                {"role": "assistant", "content": f"**Fehler:** {e}"}
-            )
-        st.rerun()
 
 
 def main() -> None:
@@ -995,7 +504,7 @@ def main() -> None:
         page_icon="📄",
     )
     inject_pwa_tags()
-    inject_neon_styles()
+    inject_fin_ui_styles()
     init_db()
     _drain_pending_llm_job()
     _maybe_flush_llm_notify()
@@ -1004,37 +513,47 @@ def main() -> None:
     if "current_nav" not in st.session_state:
         st.session_state.current_nav = "home"
     if "docu_context_key" not in st.session_state:
-        st.session_state.docu_context_key = "all"
+        st.session_state.docu_context_key = "household"
     elif str(st.session_state.docu_context_key).startswith("household:"):
         st.session_state.docu_context_key = "household"
     maybe_show_home_overlay()
 
-    with st.sidebar:
-        _render_sidebar_lumo_brand()
-        _render_sidebar_mockup_nav()
-        st.divider()
-        with st.expander("Kontext · PDF · Werkzeuge", expanded=False):
-            _render_sidebar_tools_expander()
-        st.divider()
-        _render_assistant_chat()
+    st.markdown('<div class="fin-app-wrap">', unsafe_allow_html=True)
+    if "fin_lumo_collapsed" not in st.session_state:
+        st.session_state.fin_lumo_collapsed = False
 
-    main_c = st.columns([1.0])[0]
+    if st.session_state.get("fin_lumo_collapsed"):
+        nav_c, main_c = st.columns([0.22, 0.78], gap="medium")
+        with nav_c:
+            render_navigation_column(
+                apply_import_owner=_apply_import_owner,
+                enqueue_payment=_enqueue_payment_prompt,
+            )
+        with main_c:
+            st.caption("")
+            if st.button("Lumo einblenden", key="fin_lumo_expand_strip"):
+                st.session_state.fin_lumo_collapsed = False
+                st.rerun()
+    else:
+        nav_c, lumo_c, main_c = st.columns([0.2, 0.26, 0.54], gap="medium")
+        with nav_c:
+            render_navigation_column(
+                apply_import_owner=_apply_import_owner,
+                enqueue_payment=_enqueue_payment_prompt,
+            )
+        with lumo_c:
+            render_lumo_column()
 
     with main_c:
-        st.markdown(
-            '<div data-docu-main-single-col aria-hidden="true" '
-            'style="height:0;width:0;overflow:hidden;position:absolute"></div>',
-            unsafe_allow_html=True,
-        )
-        nav_now = st.session_state.get("current_nav", "home")
-        _render_main_header_bar(nav_is_home=(nav_now == "home"))
+        render_main_top_bar()
         _render_payment_status_queue()
         _render_monthly_expense_queue()
         _render_owner_assignment_queue()
         ctx_k = _docu_context_key()
+        nav_now = st.session_state.get("current_nav", "home")
         if nav_now == "home":
             all_rows = list_documents()
-            render_finance_dashboard(filter_documents_by_context(all_rows, ctx_k))
+            render_fin_dashboard(filter_documents_by_context(all_rows, ctx_k))
             if ctx_k == "household":
                 st.caption(
                     "**Haushalt:** Gesamtansicht über alle Personen — es werden keine Daten „im Haushalt“ gespeichert."
@@ -1060,9 +579,9 @@ def main() -> None:
                     st.write(f"**Summe:** {_fmt_de_eur(agg['grand_expense_eur'])}")
         else:
             st.markdown(
-                '<div class="neon-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
+                '<div class="fin-card"><p style="margin:0;color:#cbd5e1;font-size:1rem;">'
                 "PDFs erfassen, Text lokal auslesen, mit KI strukturieren und über Kennungen "
-                "zu <strong style='color:#a5f3fc;'>Vorgängen</strong> bündeln."
+                "zu <strong style=\"color:#5eead4;\">Vorgängen</strong> bündeln."
                 "</p></div>",
                 unsafe_allow_html=True,
             )
@@ -1074,7 +593,7 @@ def main() -> None:
             st.write(
                 "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
                 "lege dort PDFs ab und importiere sie mit **Jetzt einlesen**. "
-                "Vom Rechner: **PDF hochladen** in der linken Sidebar."
+                "Vom Rechner: **PDF hochladen** in der **linken Spalte**."
             )
             if st.button("Jetzt einlesen", type="primary"):
                 with st.spinner("Import läuft…"):
@@ -1104,7 +623,7 @@ def main() -> None:
             )
             if not rows:
                 st.info(
-                    "Noch keine Dokumente in diesem Bereich. PDFs in der **Sidebar** oder "
+                    "Noch keine Dokumente in diesem Bereich. PDFs in der **linken Spalte** oder "
                     "Tab **Posteingang** importieren, dann KI-Analyse."
                 )
             else:
@@ -1233,7 +752,7 @@ def main() -> None:
                 doc = get_document(doc_id)
                 ext = get_extraction(doc_id)
                 if st.session_state.get("docu_show_llm_ok") == doc_id:
-                    st.success("Analyse gespeichert — Details im **KI-Chat** rechts.")
+                    st.success("Analyse gespeichert — Details im **KI-Chat (LUMO)** in der mittleren Spalte.")
                     del st.session_state["docu_show_llm_ok"]
 
                 c1, c2 = st.columns(2)
@@ -1325,7 +844,7 @@ def main() -> None:
                     render_document_download(doc, key_prefix="tabdoc")
                     if st.button("Ins Archiv (aus Listen nehmen)", key=f"arch_{doc_id}"):
                         set_document_archived(doc_id, True)
-                        st.success("Dokument archiviert — im Sidebar-Papierkorb wiederherstellbar.")
+                        st.success("Dokument archiviert — im Papierkorb (Navigation) wiederherstellbar.")
                         st.rerun()
                     with st.expander("Optional: E-Mail per SMTP senden", expanded=False):
                         if not smtp_configured():
