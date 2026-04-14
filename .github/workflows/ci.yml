@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Syntax check
+        run: |
+          python -m py_compile app.py asgi.py auth_middleware.py config.py dashboard_ui.py db.py docu_logging.py download_button.py email_draft_llm.py email_smtp.py export_bulk.py extract_llm.py import_jobs.py ingest.py organizer_chat.py privacy_notes.py
+      - name: Pytest
+        run: pytest tests/ -q

@@ -9,7 +9,8 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from config import LLM_TEXT_CHAR_LIMIT, OPENAI_MODEL
+from config import LLM_TEXT_CHAR_LIMIT, LLM_TWO_PHASE, OPENAI_MODEL
+from docu_logging import log_event, log_openai_error
 from nav_logic import nav_from_normalized
 
 load_dotenv()
@@ -56,11 +57,55 @@ Extrahiere alle sinnvollen Referenznummern/Kundennummern/Vertrags-/Rechnungs-/Ak
 
 
 def _truncate(text: str, limit: int) -> str:
+    """Lange PDFs: Anfang + Ende an die KI, Mitteilung über Kürzung (vollständiger Text bleibt lokal)."""
     if not text:
         return ""
     if len(text) <= limit:
         return text
-    return text[:limit] + "\n\n[…Text gekürzt für API; vollständig lokal gespeichert…]"
+    marker = (
+        "\n\n[… Mittelteil nicht an die KI gesendet — vollständiger Text nur lokal in der Datenbank …]\n\n"
+    )
+    overhead = len(marker) + 8
+    if limit <= overhead + 200:
+        return text[:limit] + "\n\n[… gekürzt …]"
+    inner = limit - overhead
+    head_n = max(120, int(inner * 0.55))
+    tail_n = inner - head_n
+    if tail_n < 80:
+        tail_n = 80
+        head_n = max(120, inner - tail_n)
+    return text[:head_n] + marker + text[-tail_n:]
+
+
+def _two_phase_condensed_narrative(full: str, *, client: OpenAI) -> str:
+    """Vorschritt: langes PDF in eine kompakte deutsche Notiz für die eigentliche JSON-Extraktion."""
+    n = len(full)
+    seg = max(4000, min(14000, LLM_TEXT_CHAR_LIMIT))
+    head = full[:seg]
+    tail = full[-seg:] if n > seg else full
+    mid_start = max(0, n // 2 - seg // 2)
+    middle = full[mid_start : mid_start + seg] if n > seg * 2 else ""
+    bundle = (
+        f"--- ANFANG (max {seg} Zeichen) ---\n{head}\n\n"
+        f"--- MITTE ---\n{middle}\n\n"
+        f"--- ENDE ---\n{tail}\n"
+    )
+    resp = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Du fasst deutsche Schreiben (Rechnungen, Behörden, Verträge) sachlich zusammen. "
+                    "Extrahiere Beträge, Daten, Absender, Kennungen, Fristen als Fließtext — max. ca. 8000 Zeichen, "
+                    "kein JSON."
+                ),
+            },
+            {"role": "user", "content": bundle[:48000]},
+        ],
+        temperature=0.15,
+    )
+    return (resp.choices[0].message.content or "").strip()
 
 
 def extract_document_fields(extracted_text: str) -> dict[str, Any]:
@@ -70,24 +115,35 @@ def extract_document_fields(extracted_text: str) -> dict[str, Any]:
             "OPENAI_API_KEY fehlt. Legen Sie die Variable in .env oder der Umgebung an."
         )
     client = OpenAI(api_key=api_key)
-    payload = _truncate(extracted_text, LLM_TEXT_CHAR_LIMIT)
-    user_content = f"{EXTRACTION_JSON_INSTRUCTIONS}\n\n--- Dokumenttext ---\n{payload}"
+    raw_text = extracted_text or ""
+    try:
+        if LLM_TWO_PHASE and len(raw_text) > LLM_TEXT_CHAR_LIMIT * 2:
+            log_event("llm_two_phase_start", chars=len(raw_text))
+            condensed = _two_phase_condensed_narrative(raw_text, client=client)
+            payload = _truncate(condensed, LLM_TEXT_CHAR_LIMIT)
+            log_event("llm_two_phase_done", condensed_chars=len(payload))
+        else:
+            payload = _truncate(raw_text, LLM_TEXT_CHAR_LIMIT)
+        user_content = f"{EXTRACTION_JSON_INSTRUCTIONS}\n\n--- Dokumenttext ---\n{payload}"
 
-    resp = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": "Du bist ein präziser Assistent für strukturierte Dokumentenextraktion. Nur JSON ausgeben.",
-            },
-            {"role": "user", "content": user_content},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.2,
-    )
-    raw = resp.choices[0].message.content or "{}"
-    data = json.loads(raw)
-    return _normalize_extraction(data)
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Du bist ein präziser Assistent für strukturierte Dokumentenextraktion. Nur JSON ausgeben.",
+                },
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+        )
+        raw = resp.choices[0].message.content or "{}"
+        data = json.loads(raw)
+        return _normalize_extraction(data)
+    except Exception as e:
+        log_openai_error("extract_document_fields", e)
+        raise
 
 
 def _normalize_extraction(data: dict[str, Any]) -> dict[str, Any]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import uuid
 from pathlib import Path
@@ -9,6 +10,29 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from config import ARCHIVE_DIR, INBOX_DIR
+
+
+def try_ocr_pdf(path: Path, *, max_pages: int = 8) -> str:
+    """
+    Optional OCR (Tesseract) für gescannte PDFs.
+    Benötigt: ``DOCU_ENABLE_OCR=1``, installiertes Tesseract, optional ``pdf2image`` + Poppler.
+    """
+    try:
+        import pytesseract  # type: ignore[import-untyped]
+        from pdf2image import convert_from_path  # type: ignore[import-untyped]
+    except ImportError:
+        return ""
+    try:
+        images = convert_from_path(str(path), first_page=1, last_page=max(1, max_pages))
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for im in images:
+        try:
+            parts.append(pytesseract.image_to_string(im, lang="deu+eng") or "")
+        except Exception:
+            continue
+    return "\n".join(parts).strip()
 
 
 def file_sha256(path: Path) -> str:
@@ -37,6 +61,11 @@ def extract_pdf_text(path: Path, max_pages: int = 50) -> tuple[str, bool]:
     full = "\n".join(text_parts).strip()
     # Heuristic: scanned PDFs often yield almost nothing
     needs = len(full) < 40
+    if needs and os.environ.get("DOCU_ENABLE_OCR", "").strip() in ("1", "true", "yes"):
+        ocr_text = try_ocr_pdf(path, max_pages=min(10, max_pages))
+        if len(ocr_text) > len(full):
+            full = ocr_text
+            needs = len(full) < 40
     return full, needs
 
 

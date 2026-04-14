@@ -1,4 +1,7 @@
 # https://docs.railway.com/guides/config-as-code
+#
+# Cron-Backups: nicht hier im Web-Service „Cron Schedule“ aktivieren.
+# Stattdessen zweiten Service im Projekt + gleiches Volume; Startbefehl und Beispiel siehe README → „Railway: tägliches Backup per Cron“.
 [build]
 builder = "nixpacks"
 

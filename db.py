@@ -39,6 +39,13 @@ def _migrate_documents_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN initial_zahlstatus TEXT")
 
 
+def _migrate_documents_archived(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(documents)").fetchall()
+    existing = {str(r[1]) for r in rows}
+    if "archived" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+
+
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
@@ -99,6 +106,7 @@ def init_db() -> None:
         )
         _migrate_extractions_columns(conn)
         _migrate_documents_columns(conn)
+        _migrate_documents_archived(conn)
         conn.commit()
 
 
@@ -197,17 +205,23 @@ def set_include_monthly_expense(document_id: int, value: int) -> None:
         )
 
 
+def _not_archived_clause() -> str:
+    return "COALESCE(d.archived, 0) = 0"
+
+
 def list_documents() -> list[dict[str, Any]]:
+    na = _not_archived_clause()
     with get_conn() as conn:
         rows = conn.execute(
-            """
-            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
+            f"""
+            SELECT d.*, e.category, e.sender_role, e.sender_name, e.subject, e.summary_de, e.document_date,
                 e.nav_folder, e.folder_sub, e.document_kind,
                 e.linked_payment_doc_id, e.zahlstatus,
                 e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
-                e.include_monthly_expense
+                e.include_monthly_expense, e.reference_ids_json
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
+            WHERE {na}
             ORDER BY d.id DESC
             """
         ).fetchall()
@@ -218,22 +232,47 @@ def list_documents_for_nav(nav_key: str | None) -> list[dict[str, Any]]:
     """Filter by sidebar folder; ``home`` or empty = all documents."""
     if not nav_key or nav_key == "home":
         return list_documents()
+    na = _not_archived_clause()
     with get_conn() as conn:
         rows = conn.execute(
-            """
-            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
+            f"""
+            SELECT d.*, e.category, e.sender_role, e.sender_name, e.subject, e.summary_de, e.document_date,
                 e.nav_folder, e.folder_sub, e.document_kind,
                 e.linked_payment_doc_id, e.zahlstatus,
                 e.primary_amount_eur, e.payslip_net_income_eur, e.amounts_json,
-                e.include_monthly_expense
+                e.include_monthly_expense, e.reference_ids_json
             FROM documents d
             LEFT JOIN extractions e ON e.document_id = d.id
-            WHERE IFNULL(e.nav_folder, '') = ?
+            WHERE IFNULL(e.nav_folder, '') = ? AND {na}
             ORDER BY (e.folder_sub IS NULL), e.folder_sub, d.id DESC
             """,
             (nav_key,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_archived_documents() -> list[dict[str, Any]]:
+    """Nur archivierte Einträge (Papierkorb)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT d.*, e.category, e.sender_role, e.summary_de, e.document_date,
+                e.nav_folder, e.folder_sub, e.document_kind
+            FROM documents d
+            LEFT JOIN extractions e ON e.document_id = d.id
+            WHERE COALESCE(d.archived, 0) != 0
+            ORDER BY d.id DESC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_document_archived(document_id: int, archived: bool) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE documents SET archived = ? WHERE id = ?",
+            (1 if archived else 0, int(document_id)),
+        )
 
 
 def get_document(doc_id: int) -> dict[str, Any] | None:
@@ -326,6 +365,46 @@ def upsert_extraction(
         )
 
 
+def list_reference_key_clusters(*, min_docs: int = 2, limit: int = 50) -> list[dict[str, Any]]:
+    """
+    Kennungen, die mehreren (nicht archivierten) Dokumenten zugeordnet sind —
+    Hinweis auf mögliche Dubletten / zusammengehörige Belege.
+    """
+    na = _not_archived_clause()
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT rk.id_type, rk.key_value, COUNT(DISTINCT rk.document_id) AS doc_count,
+                   GROUP_CONCAT(DISTINCT CAST(rk.document_id AS TEXT)) AS document_ids
+            FROM reference_keys rk
+            INNER JOIN documents d ON d.id = rk.document_id
+            WHERE {na}
+            GROUP BY rk.id_type, rk.key_value
+            HAVING COUNT(DISTINCT rk.document_id) >= ?
+            ORDER BY COUNT(DISTINCT rk.document_id) DESC, LENGTH(rk.key_value) DESC
+            LIMIT ?
+            """,
+            (min_docs, limit),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        ids_raw = str(r["document_ids"] or "")
+        ids: list[int] = []
+        for part in ids_raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                ids.append(int(part))
+        out.append(
+            {
+                "id_type": str(r["id_type"]),
+                "key_value": str(r["key_value"]),
+                "doc_count": int(r["doc_count"]),
+                "document_ids": ids,
+            }
+        )
+    return out
+
+
 def replace_reference_keys(document_id: int, reference_ids: list[dict]) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM reference_keys WHERE document_id = ?", (document_id,))
@@ -386,13 +465,15 @@ def unlink_document_from_matter(document_id: int, matter_id: int) -> None:
 
 
 def documents_for_matter(matter_id: int) -> list[dict[str, Any]]:
+    na = _not_archived_clause()
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT d.*, e.category, e.sender_name, e.sender_role, e.summary_de
             FROM documents d
             JOIN document_matters dm ON dm.document_id = d.id AND dm.matter_id = ?
             LEFT JOIN extractions e ON e.document_id = d.id
+            WHERE {na}
             ORDER BY d.id
             """,
             (matter_id,),
@@ -402,9 +483,10 @@ def documents_for_matter(matter_id: int) -> list[dict[str, Any]]:
 
 def find_documents_sharing_keys(document_id: int) -> list[dict[str, Any]]:
     """Other documents that share at least one reference key value (same string)."""
+    na = _not_archived_clause()
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT DISTINCT d.id, d.original_filename, rk.key_value, rk.id_type,
                    e.category, e.sender_role, e.summary_de
             FROM reference_keys rk_self
@@ -412,7 +494,7 @@ def find_documents_sharing_keys(document_id: int) -> list[dict[str, Any]]:
                 AND rk.document_id != rk_self.document_id
             JOIN documents d ON d.id = rk.document_id
             LEFT JOIN extractions e ON e.document_id = d.id
-            WHERE rk_self.document_id = ?
+            WHERE rk_self.document_id = ? AND {na}
             ORDER BY d.id DESC
             """,
             (document_id,),
@@ -431,12 +513,14 @@ def matter_ids_for_document(document_id: int) -> list[int]:
 
 def document_ids_for_reference_key(id_type: str, key_value: str) -> list[int]:
     """Alle Dokumente mit derselben Kennung (Typ + Wert)."""
+    na = _not_archived_clause()
     with get_conn() as conn:
         rows = conn.execute(
-            """
-            SELECT DISTINCT document_id FROM reference_keys
-            WHERE id_type = ? AND key_value = ?
-            ORDER BY document_id
+            f"""
+            SELECT DISTINCT rk.document_id FROM reference_keys rk
+            INNER JOIN documents d ON d.id = rk.document_id
+            WHERE rk.id_type = ? AND rk.key_value = ? AND {na}
+            ORDER BY rk.document_id
             """,
             (id_type, key_value),
         ).fetchall()
@@ -445,13 +529,15 @@ def document_ids_for_reference_key(id_type: str, key_value: str) -> list[int]:
 
 def find_matter_for_reference_key(id_type: str, key_value: str) -> int | None:
     """Ein bereits existierender Vorgang, der ein Dokument mit dieser Kennung enthält."""
+    na = _not_archived_clause()
     with get_conn() as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT dm.matter_id
             FROM reference_keys rk
+            INNER JOIN documents d ON d.id = rk.document_id
             INNER JOIN document_matters dm ON dm.document_id = rk.document_id
-            WHERE rk.id_type = ? AND rk.key_value = ?
+            WHERE rk.id_type = ? AND rk.key_value = ? AND {na}
             LIMIT 1
             """,
             (id_type, key_value),

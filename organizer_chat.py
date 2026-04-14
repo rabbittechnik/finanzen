@@ -8,6 +8,7 @@ from typing import Any
 from openai import OpenAI
 
 from config import OPENAI_MODEL
+from docu_logging import log_openai_error
 from db import get_extraction, list_documents, list_matters, update_extraction_nav_folder
 from nav_logic import NAV_KEYS_ORDER, NAV_LABELS
 
@@ -152,13 +153,17 @@ def run_organizer_chat(messages: list[dict[str, Any]], *, max_tool_rounds: int =
     rounds = 0
     while rounds < max_tool_rounds:
         rounds += 1
-        resp = client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=work,
-            tools=TOOLS,
-            tool_choice="auto",
-            temperature=0.3,
-        )
+        try:
+            resp = client.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=work,
+                tools=TOOLS,
+                tool_choice="auto",
+                temperature=0.3,
+            )
+        except Exception as e:
+            log_openai_error("run_organizer_chat", e)
+            raise
         msg = resp.choices[0].message
         if msg.tool_calls:
             tool_calls_payload = [

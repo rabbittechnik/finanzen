@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import sys
 from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -12,6 +13,10 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from config import INBOX_DIR, LLM_TEXT_CHAR_LIMIT
+from download_button import render_document_download
+from email_draft_llm import EMAIL_SCENARIO_CHOICES, run_email_draft
+from email_smtp import send_email_smtp, smtp_configured
+from export_bulk import build_csv_bytes, build_zip_bytes
 from ingest import save_uploaded_pdf_to_inbox
 from db import (
     clear_payment_link,
@@ -22,10 +27,13 @@ from db import (
     get_extraction,
     init_db,
     link_document_to_matter,
+    list_archived_documents,
     list_documents,
+    list_reference_key_clusters,
     list_documents_for_nav,
     list_matters,
     matter_ids_for_document,
+    set_document_archived,
     set_include_monthly_expense,
     set_payment_link_pair,
     set_zahlstatus_for_document,
@@ -43,6 +51,43 @@ from dashboard_ui import render_finance_dashboard
 from ui_theme import inject_neon_styles
 
 load_dotenv()
+
+
+def _configure_json_logging() -> None:
+    if os.environ.get("DOCU_JSON_LOGS", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    fmt = logging.Formatter(
+        '{"ts":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    root = logging.getLogger()
+    root.handlers.clear()
+    h = logging.StreamHandler(sys.stdout)
+    h.setFormatter(fmt)
+    root.addHandler(h)
+    root.setLevel(logging.INFO)
+    logging.getLogger("streamlit").setLevel(logging.WARNING)
+
+
+def _maybe_flush_llm_notify() -> None:
+    if not st.session_state.pop("_llm_done_notify", None):
+        return
+    try:
+        st.toast("KI-Analyse abgeschlossen.", icon="✅")
+    except Exception:
+        pass
+    if os.environ.get("DOCU_PWA_NOTIFY", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    components.html(
+        "<script>"
+        "try{if(window.Notification&&Notification.permission==='granted')"
+        "{new Notification('Dokumenten-Organizer',{body:'KI-Analyse abgeschlossen.'});}"
+        "}catch(e){}"
+        "</script>",
+        height=0,
+        width=0,
+    )
+
 
 # Zweiphasige KI-Analyse (Chat-Feed); Chat-Panel (Pixel, gesamt inkl. Eingabe im rechten Block)
 PENDING_LLM_KEY = "docu_pending_llm"
@@ -81,34 +126,6 @@ ROLE_DE = {
 
 def _fmt_de_eur(v: float) -> str:
     return f"{v:.2f} €".replace(".", ",")
-
-
-def _render_document_download(doc: dict[str, Any], *, key_prefix: str) -> None:
-    """Original-PDF (bzw. gespeicherte Datei) als Download anbieten."""
-    did = int(doc["id"])
-    sp = (doc.get("stored_path") or "").strip()
-    if not sp:
-        st.caption("Kein Dateipfad gespeichert.")
-        return
-    path = Path(sp)
-    if not path.is_file():
-        st.caption("Datei auf dem Server nicht gefunden.")
-        return
-    try:
-        data = path.read_bytes()
-    except OSError:
-        st.warning("Datei konnte nicht gelesen werden.")
-        return
-    fn = doc.get("original_filename") or path.name
-    mime = "application/pdf" if fn.lower().endswith(".pdf") else "application/octet-stream"
-    st.download_button(
-        "Original herunterladen",
-        data=data,
-        file_name=fn,
-        mime=mime,
-        key=f"{key_prefix}_dl_{did}",
-        use_container_width=True,
-    )
 
 
 def _enqueue_payment_prompt(doc_id: int) -> None:
@@ -386,6 +403,7 @@ def _drain_pending_llm_job() -> None:
         _after_llm_document_hooks(doc_id, out if isinstance(out, dict) else None)
         st.session_state.pop(PENDING_LLM_KEY, None)
         st.session_state["docu_show_llm_ok"] = doc_id
+        st.session_state["_llm_done_notify"] = True
         st.rerun()
 
 
@@ -449,6 +467,7 @@ def _render_assistant_chat() -> None:
 
 
 def main() -> None:
+    _configure_json_logging()
     st.set_page_config(
         page_title="Dokumenten-Organizer",
         layout="wide",
@@ -458,6 +477,7 @@ def main() -> None:
     inject_neon_styles()
     init_db()
     _drain_pending_llm_job()
+    _maybe_flush_llm_notify()
     if "auto_matter_after_llm" not in st.session_state:
         st.session_state.auto_matter_after_llm = True
     if "current_nav" not in st.session_state:
@@ -507,6 +527,9 @@ def main() -> None:
                 "(z. B. Railway → Variables) an."
             )
         st.caption(f"Pro Analyse maximal ca. {LLM_TEXT_CHAR_LIMIT:,} Zeichen Text an die KI.")
+        app_ver = (os.environ.get("DOCU_APP_VERSION") or "").strip()
+        if app_ver:
+            st.caption(f"Version: **{app_ver}**")
         st.divider()
         st.checkbox(
             "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
@@ -516,6 +539,96 @@ def main() -> None:
                 "mit derselben Kennung einem Vorgang zugeordnet (neu oder bestehend)."
             ),
         )
+        st.divider()
+        st.markdown("**Suche**")
+        st.text_input(
+            "Suchbegriff",
+            key="global_doc_search_input",
+            placeholder="Dateiname, Absender, Betreff, Kennung …",
+            label_visibility="collapsed",
+        )
+        if st.button("Treffer anzeigen", key="global_doc_search_btn"):
+            st.session_state["doc_search_q"] = (
+                st.session_state.get("global_doc_search_input") or ""
+            ).strip().lower()
+        dq = (st.session_state.get("doc_search_q") or "").strip()
+        if dq:
+            hits: list[dict[str, Any]] = []
+            for r in list_documents():
+                parts = [
+                    str(r.get("original_filename") or "").lower(),
+                    str(r.get("summary_de") or "").lower(),
+                    str(r.get("sender_name") or "").lower(),
+                    str(r.get("subject") or "").lower(),
+                    str(r.get("sender_role") or "").lower(),
+                    str(r.get("document_date") or "").lower(),
+                ]
+                try:
+                    refs = json.loads(r.get("reference_ids_json") or "[]")
+                    if isinstance(refs, list):
+                        for ref in refs:
+                            if isinstance(ref, dict):
+                                parts.append(str(ref.get("value") or "").lower())
+                except json.JSONDecodeError:
+                    pass
+                blob = " ".join(parts)
+                if dq in blob:
+                    hits.append(r)
+            if not hits:
+                st.caption("Keine Treffer.")
+            else:
+                st.caption(f"{len(hits)} Treffer (max. 30 angezeigt).")
+                for r in hits[:30]:
+                    label = f"#{r['id']} — {r.get('original_filename') or '?'}"
+                    if st.button(label, key=f"srch_go_{r['id']}"):
+                        nf = (r.get("nav_folder") or "").strip()
+                        if nf not in NAV_KEYS_ORDER:
+                            nf = "home"
+                        st.session_state["current_nav"] = nf
+                        st.session_state["jump_doc_id"] = int(r["id"])
+                        st.session_state["sidebar_nav_choice"] = nf
+                        st.rerun()
+
+        with st.expander("Papierkorb (archiviert)", expanded=False):
+            arch = list_archived_documents()
+            if not arch:
+                st.caption("Keine archivierten Dokumente.")
+            else:
+                for r in arch[:40]:
+                    col_a, col_b = st.columns([3, 1])
+                    with col_a:
+                        st.caption(f"#{r['id']} — {r.get('original_filename') or '?'}")
+                    with col_b:
+                        if st.button("Wiederherstellen", key=f"unarch_{r['id']}"):
+                            set_document_archived(int(r["id"]), False)
+                            st.rerun()
+
+        with st.expander("Gleiche Kennung (mehrere Dokumente)", expanded=False):
+            clusters = list_reference_key_clusters(limit=35)
+            if not clusters:
+                st.caption("Keine Kennung mit mehreren aktiven Dokumenten.")
+            else:
+                st.caption(
+                    "Mehrere Belege teilen dieselbe extrahierte Kennung — prüfen, ob Dublette oder beabsichtigt."
+                )
+                for ci, c in enumerate(clusters):
+                    kv = (c.get("key_value") or "")[:72]
+                    st.markdown(
+                        f"**{c.get('id_type')}** · `{kv}` — **{c.get('doc_count')}** Dokument(e)"
+                    )
+                    for j, did in enumerate(c["document_ids"][:8]):
+                        if st.button(f"Dokument #{did} öffnen", key=f"rkclus_{ci}_{j}_{did}"):
+                            drow = get_document(did)
+                            nf = "home"
+                            if drow:
+                                ext0 = get_extraction(did)
+                                if ext0 and (ext0.get("nav_folder") or "").strip() in NAV_KEYS_ORDER:
+                                    nf = str(ext0.get("nav_folder")).strip()
+                            st.session_state["current_nav"] = nf
+                            st.session_state["sidebar_nav_choice"] = nf
+                            st.session_state["jump_doc_id"] = int(did)
+                            st.rerun()
+
         st.divider()
         with st.expander("Datenschutz"):
             st.markdown(PRIVACY_UI_DE)
@@ -578,6 +691,97 @@ def main() -> None:
                     "Tab **Posteingang** importieren, dann KI-Analyse."
                 )
             else:
+                flat_map: dict[str, int] = {}
+                if nav_key == "stromanbieter":
+                    by_sub_fm: dict[str | None, list] = defaultdict(list)
+                    for r in rows:
+                        by_sub_fm[r.get("folder_sub")].append(r)
+                    ordered_fm = sorted(by_sub_fm.keys(), key=lambda x: (x is None, (x or "")))
+                    for sub in ordered_fm:
+                        gname = sub if sub else "Ohne Anbietername"
+                        for r in sorted(by_sub_fm[sub], key=lambda x: -int(x["id"])):
+                            flat_map[f'#{r["id"]} — {r["original_filename"]} · {gname}'] = int(r["id"])
+                else:
+                    for r in rows:
+                        flat_map[f'#{r["id"]} — {r["original_filename"]}'] = int(r["id"])
+
+                ordered_labels = sorted(flat_map.keys(), key=lambda lab: -flat_map[lab])
+                scen_labels_map = dict(EMAIL_SCENARIO_CHOICES)
+                out_key = f"email_draft_out_{nav_key}"
+                with st.expander("E-Mail-Entwurf (KI, mehrere Dokumente)", expanded=False):
+                    st.caption(
+                        "Nur Vorschlag — kein automatischer Versand. Keine Rechtsberatung; Inhalte prüfen. "
+                        "Extrahierte Felder werden an die KI übermittelt (wie im Chat)."
+                    )
+                    pick_em = st.multiselect(
+                        "Dokumente einbeziehen",
+                        options=ordered_labels,
+                        default=[],
+                        key=f"email_draft_ms_{nav_key}",
+                    )
+                    scen_i = st.selectbox(
+                        "Anlass",
+                        [k for k, _ in EMAIL_SCENARIO_CHOICES],
+                        format_func=lambda k: scen_labels_map[k],
+                        key=f"email_draft_sc_{nav_key}",
+                    )
+                    em_notes = st.text_area(
+                        "Zusätzliche Hinweise",
+                        placeholder="z. B. gewünschte Laufzeit, bereits erfolgte Teilzahlungen …",
+                        key=f"email_draft_notes_{nav_key}",
+                        height=88,
+                    )
+                    if st.button("Entwurf erzeugen", key=f"email_draft_go_{nav_key}"):
+                        if not pick_em:
+                            st.warning("Bitte mindestens ein Dokument auswählen.")
+                        else:
+                            ids_em = [flat_map[x] for x in pick_em]
+                            try:
+                                with st.spinner("KI formuliert …"):
+                                    st.session_state[out_key] = run_email_draft(
+                                        doc_ids=ids_em,
+                                        scenario_key=scen_i,
+                                        user_notes=em_notes,
+                                    )
+                            except Exception as e:
+                                st.error(str(e))
+                if st.session_state.get(out_key):
+                    st.markdown("##### Letzter E-Mail-Entwurf (KI)")
+                    st.markdown(st.session_state[out_key])
+
+                with st.expander("Export (ZIP / CSV)", expanded=False):
+                    pick_z = st.multiselect(
+                        "Dokumente für Export",
+                        options=ordered_labels,
+                        default=[],
+                        key=f"exp_ms_{nav_key}",
+                    )
+                    if pick_z:
+                        ids_z = [flat_map[x] for x in pick_z]
+                        ez1, ez2 = st.columns(2)
+                        zdata = build_zip_bytes(ids_z)
+                        with ez1:
+                            st.download_button(
+                                "ZIP (PDFs)",
+                                zdata,
+                                file_name="export_pdfs.zip",
+                                mime="application/zip",
+                                key=f"dlz_{nav_key}",
+                                use_container_width=True,
+                            )
+                        cdata = build_csv_bytes(ids_z)
+                        with ez2:
+                            st.download_button(
+                                "CSV (Metadaten)",
+                                cdata,
+                                file_name="export_metadaten.csv",
+                                mime="text/csv",
+                                key=f"dlc_{nav_key}",
+                                use_container_width=True,
+                            )
+                    else:
+                        st.caption("Dokumente auswählen, dann ZIP oder CSV herunterladen.")
+
                 if nav_key == "stromanbieter":
                     by_sub: dict[str | None, list] = defaultdict(list)
                     for r in rows:
@@ -589,10 +793,25 @@ def main() -> None:
                         st.markdown(f"**{label}**")
                         for r in sorted(by_sub[sub], key=lambda x: -int(x["id"])):
                             id_opts[f'#{r["id"]} — {r["original_filename"]}'] = r["id"]
-                    choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
                 else:
                     id_opts = {f'#{r["id"]} — {r["original_filename"]}': r["id"] for r in rows}
-                    choice = st.selectbox("Dokument wählen", list(id_opts.keys()))
+                keys_list = list(id_opts.keys())
+                want = st.session_state.get("jump_doc_id")
+                sel_index = 0
+                if want is not None and keys_list:
+                    ids_list = list(id_opts.values())
+                    wi = int(want)
+                    if wi in ids_list:
+                        sel_index = int(ids_list.index(wi))
+                if want is not None:
+                    st.session_state.pop("jump_doc_id", None)
+                sel_index = max(0, min(sel_index, len(keys_list) - 1)) if keys_list else 0
+                choice = st.selectbox(
+                    "Dokument wählen",
+                    keys_list,
+                    index=sel_index,
+                    key=f"docpick_sb_{nav_key}",
+                )
                 doc_id = id_opts[choice]
                 doc = get_document(doc_id)
                 ext = get_extraction(doc_id)
@@ -611,7 +830,8 @@ def main() -> None:
                     if doc.get("needs_ocr"):
                         st.error(
                             "Sehr wenig Text extrahiert – vermutlich gescanntes PDF. "
-                            "Optional später OCR (z. B. Tesseract) ergänzen."
+                            "Optional: `DOCU_ENABLE_OCR=1`, Tesseract + `pdf2image`/Poppler installieren "
+                            "(siehe README)."
                         )
                     if ext:
                         nf = ext.get("nav_folder")
@@ -683,7 +903,32 @@ def main() -> None:
     
                 with c2:
                     st.markdown("#### Aktionen")
-                    _render_document_download(doc, key_prefix="tabdoc")
+                    render_document_download(doc, key_prefix="tabdoc")
+                    if st.button("Ins Archiv (aus Listen nehmen)", key=f"arch_{doc_id}"):
+                        set_document_archived(doc_id, True)
+                        st.success("Dokument archiviert — im Sidebar-Papierkorb wiederherstellbar.")
+                        st.rerun()
+                    with st.expander("Optional: E-Mail per SMTP senden", expanded=False):
+                        if not smtp_configured():
+                            st.caption(
+                                "Für **Gmail**: `DOCU_SMTP_HOST=smtp.gmail.com`, Port `587`, Nutzer und Absender = "
+                                "deine Gmail-Adresse, Passwort = **Google-App-Passwort** (16 Zeichen). "
+                                "Alle fünf `DOCU_SMTP_*` in Railway/.env setzen — Details im **README**."
+                            )
+                        else:
+                            to_a = st.text_input("An (E-Mail)", key=f"smtp_to_{doc_id}")
+                            subj = st.text_input("Betreff", key=f"smtp_sub_{doc_id}")
+                            body = st.text_area("Text", key=f"smtp_body_{doc_id}", height=160)
+                            conf = st.checkbox("Versand ausdrücklich bestätigen", key=f"smtp_cf_{doc_id}")
+                            if st.button("Senden", key=f"smtp_go_{doc_id}"):
+                                if not conf:
+                                    st.warning("Bitte Versand bestätigen.")
+                                else:
+                                    try:
+                                        send_email_smtp(to_addr=to_a, subject=subj, body=body)
+                                        st.success("E-Mail wurde über SMTP versendet.")
+                                    except Exception as e:
+                                        st.error(str(e))
                     if st.button("Mit KI analysieren", key=f"llm_{doc_id}"):
                         st.session_state[PENDING_LLM_KEY] = {
                             "phase": 1,
@@ -813,7 +1058,7 @@ def main() -> None:
                             f"{CATEGORY_DE.get(d.get('category') or '', d.get('category') or '—')} · "
                             f"{ROLE_DE.get(d.get('sender_role') or '', d.get('sender_role') or '—')}"
                         )
-                        _render_document_download(d, key_prefix=f"matter{m['id']}")
+                        render_document_download(d, key_prefix=f"matter{m['id']}")
                         if st.button("Entknüpfen", key=f"um_{m['id']}_{d['id']}"):
                             unlink_document_from_matter(int(d["id"]), int(m["id"]))
                             st.rerun()

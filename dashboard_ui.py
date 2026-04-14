@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import streamlit as st
 
 from dashboard_finance import compute_dashboard_metrics, list_tile_rows
+from db import get_document
+from download_button import render_document_download
 
 _DASH_TILE_KEY = "dash_fin_tile"
 _DASH_Y_KEY = "dash_fin_y"
@@ -63,6 +66,23 @@ def render_finance_dashboard(rows: list[dict[str, Any]]) -> None:
     if tile:
         _render_detail(rows, tile, y, m)
         return
+
+    fy = int(st.session_state[_DASH_Y_KEY])
+    fm = int(st.session_state[_DASH_M_KEY])
+    ov1, ov2 = st.columns([1, 1])
+    with ov1:
+        fy = st.number_input("Jahr", min_value=2000, max_value=2100, value=fy, key="dash_ov_y")
+    with ov2:
+        fm = st.selectbox(
+            "Monat",
+            list(range(1, 13)),
+            index=max(0, min(11, fm - 1)),
+            format_func=lambda x: str(x),
+            key="dash_ov_m",
+        )
+    st.session_state[_DASH_Y_KEY] = fy
+    st.session_state[_DASH_M_KEY] = fm
+    y, m = fy, fm
 
     mets = compute_dashboard_metrics(rows, y, m)
 
@@ -240,3 +260,13 @@ def _render_detail(rows: list[dict[str, Any]], tile: str, y: int, m: int) -> Non
         use_container_width=True,
         hide_index=True,
     )
+    st.markdown('<p class="dash-section-label">Downloads (Original-PDF)</p>', unsafe_allow_html=True)
+    for z in lines:
+        drow = get_document(int(z["id"]))
+        if not drow:
+            continue
+        r1, r2 = st.columns([2.2, 1])
+        with r1:
+            st.caption(f"#{z['id']} · {z['filename']} · {_fmt(z['amount_eur'])}")
+        with r2:
+            render_document_download(drow, key_prefix=f"dashdet_{tile}_{z['id']}")

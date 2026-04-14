@@ -12,6 +12,8 @@ from starlette.responses import FileResponse
 from starlette.routing import Route
 from streamlit.starlette import App
 
+from auth_middleware import wrap_basic_auth_if_configured
+
 _ROOT = Path(__file__).resolve().parent
 _STATIC = _ROOT / "static"
 
@@ -40,12 +42,14 @@ async def _icon_512(_request):
     return FileResponse(_STATIC / "icon-512.png", media_type="image/png")
 
 
-app = App(
-    str(_ROOT / "app.py"),
-    routes=[
-        Route("/manifest.json", endpoint=_manifest, methods=["GET"]),
-        Route("/sw.js", endpoint=_service_worker, methods=["GET"]),
-        Route("/pwa/icon-192.png", endpoint=_icon_192, methods=["GET"]),
-        Route("/pwa/icon-512.png", endpoint=_icon_512, methods=["GET"]),
-    ],
+app = wrap_basic_auth_if_configured(
+    App(
+        str(_ROOT / "app.py"),
+        routes=[
+            Route("/manifest.json", endpoint=_manifest, methods=["GET"]),
+            Route("/sw.js", endpoint=_service_worker, methods=["GET"]),
+            Route("/pwa/icon-192.png", endpoint=_icon_192, methods=["GET"]),
+            Route("/pwa/icon-512.png", endpoint=_icon_512, methods=["GET"]),
+        ],
+    )
 )
