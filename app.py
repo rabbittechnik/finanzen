@@ -530,6 +530,34 @@ def main() -> None:
         app_ver = (os.environ.get("DOCU_APP_VERSION") or "").strip()
         if app_ver:
             st.caption(f"Version: **{app_ver}**")
+        if smtp_configured():
+            st.markdown("**E-Mail (SMTP)**")
+            st.caption("Sendet eine kurze Testmail an **DOCU_SMTP_FROM** (meist deine eigene Adresse).")
+            if st.button(
+                "Testmail an mich senden",
+                key="sidebar_smtp_test_mail",
+                use_container_width=True,
+            ):
+                frm = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
+                if not frm:
+                    st.error("`DOCU_SMTP_FROM` fehlt in der Umgebung.")
+                else:
+                    try:
+                        with st.spinner("Sende Testmail …"):
+                            send_email_smtp(
+                                to_addr=frm,
+                                subject="Docu-Organizer — SMTP-Test",
+                                body=(
+                                    "Hallo,\n\n"
+                                    "dies ist eine automatische Testmail aus dem Dokumenten-Organizer "
+                                    "(Sidebar-Button „Testmail an mich senden“).\n\n"
+                                    "Wenn du diese Nachricht liest, funktioniert SMTP (z. B. Gmail) korrekt.\n\n"
+                                    "— Docu-Organizer (Test)\n"
+                                ),
+                            )
+                        st.success(f"Testmail gesendet an: {frm}")
+                    except Exception as e:
+                        st.error(str(e))
         st.divider()
         st.checkbox(
             "Nach KI: Vorgänge automatisch (gleiche Kunden-/Vertragsnr.)",
