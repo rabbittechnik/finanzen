@@ -106,6 +106,7 @@ class DashboardMetrics:
 
 
 def compute_dashboard_metrics(rows: list[dict[str, Any]], y: int, m: int) -> DashboardMetrics:
+    # Schulden-Summe aus home: zeitlich unabhängig (alle offenen Forderungen), nicht nach y/m gefiltert.
     home = compute_home_stats(rows)
     y_strom = date.today().year
 

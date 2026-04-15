@@ -119,6 +119,9 @@ def render_fin_dashboard(rows: list[dict[str, Any]]) -> None:
     )
     sch_body = (
         f"<p><strong>{_fmt(mets.debt_open_eur)}</strong> offen</p>"
+        '<p class="fin-note fin-note-metric">Unabhängig vom Monat oben: alle offenen '
+        "Mahnungen/Forderungen. Verschwindet bei „bezahlt“ oder über "
+        "verknüpfte Zahlungsbelege.</p>"
         f"<p>{mets.debt_open_docs} Dokument(e) · {mets.debt_open_count} Kennung(en) gruppiert</p>"
     )
     strom_body = (

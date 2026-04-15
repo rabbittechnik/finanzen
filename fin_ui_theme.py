@@ -233,6 +233,10 @@ def inject_fin_ui_styles() -> None:
     color: #64748b !important;
     margin-top: 0.4rem !important;
   }
+  .fin-metric-body .fin-note.fin-note-metric {
+    margin-top: 0.15rem !important;
+    line-height: 1.3 !important;
+  }
 
   .stButton > button[kind="primary"] {
     background: linear-gradient(90deg, #22d3ee 0%, #14b8a6 50%, #0d9488 100%) !important;
@@ -332,9 +336,11 @@ def inject_fin_ui_styles() -> None:
     gap: 0.12rem !important;
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) .stButton > button {
-    padding: 0.28rem 0.42rem !important;
-    font-size: 0.74rem !important;
-    min-height: 1.85rem !important;
+    padding: 0.24rem 0.38rem !important;
+    font-size: 0.7rem !important;
+    min-height: 1.65rem !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
   }
 
   /* PDF-Upload: eine Zeile Größen-Hinweis (Streamlit), nicht doppelt */
