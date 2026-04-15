@@ -12,3 +12,4 @@ toolbarMode = "minimal"
 [server]
 headless = true
 enableStaticServing = true
+maxUploadSize = 200

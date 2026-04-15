@@ -216,10 +216,18 @@ def _render_global_header_inner(
             )
         if do_upload and up:
             for f in up:
-                path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                try:
+                    path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                except Exception as exc:
+                    st.error(f"Speichern fehlgeschlagen ({f.name}): {exc}")
+                    continue
                 if auto_import:
-                    with st.spinner(f"Import: {path.name}…"):
-                        r = import_one_pdf(path)
+                    try:
+                        with st.spinner(f"Import: {path.name}…"):
+                            r = import_one_pdf(path)
+                    except Exception as exc:
+                        st.error(f"Import fehlgeschlagen ({path.name}): {exc}")
+                        continue
                     if r["status"] == "duplicate":
                         st.warning(f"Duplikat: **{r['filename']}**")
                     elif r["status"] == "error":
