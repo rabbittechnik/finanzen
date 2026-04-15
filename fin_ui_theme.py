@@ -26,7 +26,7 @@ def inject_fin_ui_styles() -> None:
     border-bottom: 1px solid rgba(94, 234, 212, 0.12) !important;
   }
 
-  /* Native Sidebar aus — Layout kommt aus drei Spalten */
+  /* Native Sidebar aus — Layout ist app-intern (eigene Spalten) */
   section[data-testid="stSidebar"] {
     display: none !important;
   }
@@ -180,9 +180,19 @@ def inject_fin_ui_styles() -> None:
     min-height: 10rem;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
+  .fin-metric-link {
+    display: block;
+    text-decoration: none !important;
+    color: inherit !important;
+    cursor: pointer;
+  }
   .fin-metric-card:hover {
     border-color: rgba(94, 234, 212, 0.28);
     box-shadow: 0 8px 26px rgba(0, 0, 0, 0.38), 0 0 32px rgba(34, 211, 238, 0.1);
+  }
+  .fin-metric-link:focus-visible .fin-metric-card {
+    outline: 2px solid rgba(94, 234, 212, 0.6);
+    outline-offset: 2px;
   }
   .fin-metric-title {
     font-size: 0.92rem;
@@ -268,6 +278,20 @@ def inject_fin_ui_styles() -> None:
     padding: 0.85rem 1rem;
     margin-bottom: 0.85rem;
     color: #7dd3fc;
+  }
+
+  /* KI-Chat kompakter in linker Sidebar */
+  .fin-lumo-title {
+    margin-top: 0.15rem !important;
+  }
+  div[data-testid="stVerticalBlock"] div[data-testid="stChatMessage"] {
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(100, 116, 139, 0.22);
+    border-radius: 10px;
+    padding: 0.3rem 0.5rem;
+  }
+  div[data-testid="stVerticalBlock"] div[data-testid="stChatInput"] textarea {
+    min-height: 2.25rem !important;
   }
 </style>
         """,

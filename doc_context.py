@@ -1,4 +1,8 @@
-"""Dokument-Kontext (Haushalt / Person) — zentral für Filter ohne Zirkelimporte."""
+"""Dokument-Kontext (Haushalt / Person) — zentral für Filter ohne Zirkelimporte.
+
+„household“ / „all“: alle Belege in der **Auswertung** — keine Speicher-Entität für Zuordnungen.
+Nur ``person:<id>`` filtert auf Dokumente dieser Person.
+"""
 from __future__ import annotations
 
 from typing import Any

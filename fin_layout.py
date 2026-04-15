@@ -141,7 +141,10 @@ def render_main_top_bar() -> None:
             label_visibility="collapsed",
         )
         st.session_state.docu_context_key = picked
-        st.caption("Alle Daten im Dashboard und in den Tabs folgen dieser Auswahl.")
+        st.caption(
+            "**Haushalt:** gemeinsame Kennzahlen-Ansicht — **keine** PDF-/Dokument-Zuordnung. "
+            "**Person:** gefilterte Ansicht; optional Auto-Zuordnung neuer Imports (siehe unten)."
+        )
     with c2:
         st.session_state.fin_ctx_year = st.selectbox(
             "Jahr",
@@ -177,12 +180,17 @@ def render_main_top_bar() -> None:
         if st.button("Update", key="fin_top_update", type="primary", use_container_width=True):
             st.rerun()
 
+    is_person = str(st.session_state.get("docu_context_key") or "").startswith("person:")
+    if not is_person:
+        st.session_state.docu_assign_import_to_context = False
     st.checkbox(
         "Neue PDF-Imports der gewählten Person zuordnen",
-        value=False,
         key="docu_assign_import_to_context",
-        help="Nur sinnvoll bei einer einzelnen Person (nicht Gesamter Haushalt).",
+        disabled=not is_person,
+        help="Nur aktiv, wenn oben eine **einzelne Person** gewählt ist — nicht im Haushalt-Modus.",
     )
+    if not is_person:
+        st.caption("Im Haushalt-Modus deaktiviert: Dokumente immer einer **Person** zuweisen.")
 
 
 def _render_reload_button() -> None:
@@ -403,16 +411,10 @@ def render_navigation_column(
 
 
 def render_lumo_column() -> None:
-    h1, h2 = st.columns([2, 1])
-    with h1:
-        st.markdown(
-            '<p class="fin-lumo-title" style="margin:0 0 0.35rem 0;">KI-Chat (LUMO)</p>',
-            unsafe_allow_html=True,
-        )
-    with h2:
-        if st.button("Einklappen", key="fin_lumo_fold_btn"):
-            st.session_state.fin_lumo_collapsed = True
-            st.rerun()
+    st.markdown(
+        '<p class="fin-lumo-title" style="margin:0 0 0.35rem 0;">KI-Chat (LUMO)</p>',
+        unsafe_allow_html=True,
+    )
 
     a1, a2 = st.columns([0.35, 0.65])
     with a1:
@@ -468,7 +470,7 @@ def render_lumo_column() -> None:
             )
         st.rerun()
 
-    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", "220"))
+    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", "280"))
     try:
         scroll = st.container(height=sb_msg, border=True)
     except TypeError:

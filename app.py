@@ -171,12 +171,14 @@ def _enqueue_owner_prompt(doc_id: int) -> None:
 
 
 def _apply_import_owner(doc_id: int) -> None:
-    """Nach Import: optional nur Person-Kontext zuordnen, sonst Rückfrage."""
-    if st.session_state.get("docu_assign_import_to_context"):
-        ck = _docu_context_key()
-        if ck.startswith("person:"):
-            set_document_owner(doc_id, person_id=int(ck.split(":", 1)[1]))
-            return
+    """Nach Import: optional nur einer Person zuordnen — niemals „Haushalt“ (nur Auswertungs-Ansicht)."""
+    ck = _docu_context_key()
+    if ck in ("household", "all"):
+        _enqueue_owner_prompt(doc_id)
+        return
+    if st.session_state.get("docu_assign_import_to_context") and ck.startswith("person:"):
+        set_document_owner(doc_id, person_id=int(ck.split(":", 1)[1]))
+        return
     _enqueue_owner_prompt(doc_id)
 
 
@@ -519,30 +521,14 @@ def main() -> None:
     maybe_show_home_overlay()
 
     st.markdown('<div class="fin-app-wrap">', unsafe_allow_html=True)
-    if "fin_lumo_collapsed" not in st.session_state:
-        st.session_state.fin_lumo_collapsed = False
-
-    if st.session_state.get("fin_lumo_collapsed"):
-        nav_c, main_c = st.columns([0.22, 0.78], gap="medium")
-        with nav_c:
-            render_navigation_column(
-                apply_import_owner=_apply_import_owner,
-                enqueue_payment=_enqueue_payment_prompt,
-            )
-        with main_c:
-            st.caption("")
-            if st.button("Lumo einblenden", key="fin_lumo_expand_strip"):
-                st.session_state.fin_lumo_collapsed = False
-                st.rerun()
-    else:
-        nav_c, lumo_c, main_c = st.columns([0.2, 0.26, 0.54], gap="medium")
-        with nav_c:
-            render_navigation_column(
-                apply_import_owner=_apply_import_owner,
-                enqueue_payment=_enqueue_payment_prompt,
-            )
-        with lumo_c:
-            render_lumo_column()
+    nav_c, main_c = st.columns([0.28, 0.72], gap="medium")
+    with nav_c:
+        render_navigation_column(
+            apply_import_owner=_apply_import_owner,
+            enqueue_payment=_enqueue_payment_prompt,
+        )
+        st.divider()
+        render_lumo_column()
 
     with main_c:
         render_main_top_bar()
@@ -556,7 +542,8 @@ def main() -> None:
             render_fin_dashboard(filter_documents_by_context(all_rows, ctx_k))
             if ctx_k == "household":
                 st.caption(
-                    "**Haushalt:** Gesamtansicht über alle Personen — es werden keine Daten „im Haushalt“ gespeichert."
+                    "**Gesamter Haushalt:** Nur **Auswertung** über alle Personen (Einnahmen, Ausgaben, …). "
+                    "PDFs und Dokumente können dem Haushalt **nicht** zugeordnet werden — bitte eine **Person** wählen oder nach dem Import zuordnen."
                 )
             agg = aggregate_owner_totals(all_rows)
             tb = agg.get("totals_by_key") or {}
@@ -752,7 +739,7 @@ def main() -> None:
                 doc = get_document(doc_id)
                 ext = get_extraction(doc_id)
                 if st.session_state.get("docu_show_llm_ok") == doc_id:
-                    st.success("Analyse gespeichert — Details im **KI-Chat (LUMO)** in der mittleren Spalte.")
+                    st.success("Analyse gespeichert — Details im **KI-Chat (LUMO)** in der linken Sidebar.")
                     del st.session_state["docu_show_llm_ok"]
 
                 c1, c2 = st.columns(2)

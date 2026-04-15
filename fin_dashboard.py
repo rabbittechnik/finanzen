@@ -41,31 +41,25 @@ def _money_class(v: float) -> str:
     return "fin-num-zero"
 
 
-def _card_html(title: str, body_html: str, accent: str) -> str:
+def _card_html(title: str, body_html: str, accent: str, tile_id: str) -> str:
     return (
+        f'<a class="fin-metric-link" href="?fin_tile={tile_id}">'
         f'<div class="fin-metric-card" data-fin-accent="{accent}">'
         f'<div class="fin-metric-title">{title}</div>'
-        f'<div class="fin-metric-body">{body_html}</div></div>'
+        f'<div class="fin-metric-body">{body_html}</div>'
+        "</div></a>"
     )
 
 
-def _row_metric_actions(html: str, tile_id: str, btn_key: str) -> None:
+def _row_metric_actions(html: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
-    r1, r2 = st.columns([2.1, 1.0])
-    with r1:
-        st.empty()
-    with r2:
-        if st.button("Details", key=btn_key, type="secondary", use_container_width=True):
-            st.session_state[FIN_TILE_KEY] = tile_id
-            st.rerun()
 
 
-def _grid_row3(a: tuple[str, str, str], b: tuple[str, str, str], c: tuple[str, str, str]) -> None:
+def _grid_row3(a: str, b: str, c: str) -> None:
     cols = st.columns(3, gap="medium")
     for col, pack in zip(cols, (a, b, c), strict=True):
-        html_s, tid, bid = pack
         with col:
-            _row_metric_actions(html_s, tid, bid)
+            _row_metric_actions(pack)
 
 
 def _close_tile() -> None:
@@ -85,6 +79,13 @@ def _ctx_ym() -> tuple[int, int]:
 def render_fin_dashboard(rows: list[dict[str, Any]]) -> None:
     """Übersicht oder Kachel-Detail; Jahr/Monat kommen aus fin_ctx_* (Top-Bar)."""
     y, m = _ctx_ym()
+    q_tile = str(st.query_params.get("fin_tile") or "").strip()
+    if q_tile:
+        st.session_state[FIN_TILE_KEY] = q_tile
+        try:
+            del st.query_params["fin_tile"]
+        except Exception:
+            pass
     tile = st.session_state.get(FIN_TILE_KEY)
 
     if tile:
@@ -128,18 +129,14 @@ def render_fin_dashboard(rows: list[dict[str, Any]]) -> None:
     )
 
     _grid_row3(
-        (_card_html("Saldo (Monat)", saldo_body, "saldo"), "saldo", "fin_btn_saldo"),
-        (_card_html("Fixkosten-Saldo", fix_body, "fix"), "fixkosten", "fin_btn_fix"),
-        (_card_html("Einnahmen (Monat)", ein_body, "in"), "einnahmen", "fin_btn_ein"),
+        _card_html("Saldo (Monat)", saldo_body, "saldo", "saldo"),
+        _card_html("Fixkosten-Saldo", fix_body, "fix", "fixkosten"),
+        _card_html("Einnahmen (Monat)", ein_body, "in", "einnahmen"),
     )
     _grid_row3(
-        (_card_html("Ausgaben (Monat)", aus_body, "aus"), "ausgaben", "fin_btn_aus"),
-        (_card_html("Schulden", sch_body, "sch"), "schulden", "fin_btn_sch"),
-        (
-            _card_html(f"Stromkosten {mets.strom_year}", strom_body, "strom"),
-            "strom_jahr",
-            "fin_btn_strom",
-        ),
+        _card_html("Ausgaben (Monat)", aus_body, "aus", "ausgaben"),
+        _card_html("Schulden", sch_body, "sch", "schulden"),
+        _card_html(f"Stromkosten {mets.strom_year}", strom_body, "strom", "strom_jahr"),
     )
 
     st.markdown(
@@ -155,15 +152,14 @@ def render_fin_dashboard(rows: list[dict[str, Any]]) -> None:
     )
     c4 = st.columns(4, gap="small")
     cat_packs = (
-        (_card_html("Haus & Internet", cat_a, "haus"), "haus", "fin_btn_haus"),
-        (_card_html("Handy", cat_b, "handy"), "handy", "fin_btn_handy"),
-        (_card_html("Versicherungen", cat_c, "vers"), "versicherungen", "fin_btn_vers"),
-        (_card_html("ÖPNV", cat_d, "oep"), "oepnv", "fin_btn_oepnv"),
+        _card_html("Haus & Internet", cat_a, "haus", "haus"),
+        _card_html("Handy", cat_b, "handy", "handy"),
+        _card_html("Versicherungen", cat_c, "vers", "versicherungen"),
+        _card_html("ÖPNV", cat_d, "oep", "oepnv"),
     )
     for col, pack in zip(c4, cat_packs, strict=True):
-        html_s, tid, bid = pack
         with col:
-            _row_metric_actions(html_s, tid, bid)
+            _row_metric_actions(pack)
 
 
 def _render_detail(rows: list[dict[str, Any]], tile: str, y: int, m: int) -> None:
