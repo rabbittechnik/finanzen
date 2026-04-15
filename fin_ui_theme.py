@@ -40,26 +40,41 @@ def inject_fin_ui_styles() -> None:
   }
 
   .fin-app-wrap {
-    padding: 0.25rem 0.5rem 1.25rem 0.25rem;
+    padding: 0.15rem 0.35rem 0.75rem 0.15rem;
+  }
+
+  /* Erste Spalte (hat .fin-brand-title): scrollbar, Inhalt bleibt nutzbar */
+  div[data-testid="stHorizontalBlock"]:has(.fin-brand-title) > div[data-testid="column"]:first-child {
+    max-height: calc(100dvh - 5.25rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.28rem;
+    scrollbar-gutter: stable;
+    align-self: start;
   }
 
   .fin-brand-title {
-    font-size: 0.95rem;
+    font-size: 0.82rem;
     font-weight: 700;
     letter-spacing: -0.02em;
     color: #f8fafc;
-    line-height: 1.3;
-    margin: 0 0 0.75rem 0;
-    text-shadow: 0 0 24px rgba(45, 212, 191, 0.25);
+    line-height: 1.25;
+    margin: 0 0 0.45rem 0;
+    text-shadow: 0 0 18px rgba(45, 212, 191, 0.2);
   }
 
   .fin-nav-heading {
-    font-size: 0.68rem;
+    font-size: 0.62rem;
     font-weight: 700;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: #64748b;
-    margin: 0.5rem 0 0.35rem 0;
+    margin: 0.35rem 0 0.28rem 0;
+  }
+  .fin-nav-heading-spaced {
+    margin-top: 0.55rem !important;
+    padding-top: 0.45rem;
+    border-top: 1px solid rgba(94, 234, 212, 0.12);
   }
 
   .fin-col-scroll {
@@ -89,16 +104,18 @@ def inject_fin_ui_styles() -> None:
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(8, 12, 22, 0.95));
   }
   .fin-lumo-title {
-    font-size: 1rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    color: #e2e8f0;
-    margin: 0;
+    color: #a5f3fc;
+    margin: 0 0 0.35rem 0;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
   .fin-lumo-greet {
-    font-size: 0.82rem;
+    font-size: 0.72rem;
     color: #94a3b8;
-    margin: 0.25rem 0 0 0;
-    line-height: 1.35;
+    margin: 0;
+    line-height: 1.3;
   }
 
   .fin-card {
@@ -154,30 +171,30 @@ def inject_fin_ui_styles() -> None:
   }
 
   .fin-section-title {
-    font-size: 1.35rem;
+    font-size: 1.12rem;
     font-weight: 700;
     letter-spacing: -0.02em;
     color: #e2e8f0;
-    margin: 0.35rem 0 1rem 0;
+    margin: 0.2rem 0 0.65rem 0;
   }
   .fin-section-kicker {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #64748b;
-    margin: 1.35rem 0 0.65rem 0;
+    margin: 0.85rem 0 0.45rem 0;
   }
 
   .fin-metric-card {
-    border-radius: 14px;
+    border-radius: 12px;
     border: 1px solid rgba(148, 163, 184, 0.2);
     background: linear-gradient(160deg, rgba(20, 28, 48, 0.95) 0%, rgba(10, 14, 24, 0.92) 100%);
     box-shadow:
       0 6px 20px rgba(0, 0, 0, 0.32),
       0 0 24px rgba(34, 211, 238, 0.05);
-    padding: 1.05rem 1.1rem 0.85rem;
-    min-height: 10rem;
+    padding: 0.72rem 0.8rem 0.6rem;
+    min-height: 7.5rem;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
   .fin-metric-link {
@@ -195,23 +212,23 @@ def inject_fin_ui_styles() -> None:
     outline-offset: 2px;
   }
   .fin-metric-title {
-    font-size: 0.92rem;
+    font-size: 0.8rem;
     font-weight: 700;
     color: #a5f3fc;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
     letter-spacing: 0.02em;
   }
   .fin-metric-body p {
-    margin: 0.18rem 0;
-    font-size: 0.88rem;
+    margin: 0.12rem 0;
+    font-size: 0.78rem;
     color: #cbd5e1;
-    line-height: 1.4;
+    line-height: 1.35;
   }
   .fin-num-lg {
-    font-size: 1.45rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: #f1f5f9;
-    margin: 0.2rem 0 0.35rem 0 !important;
+    margin: 0.12rem 0 0.25rem 0 !important;
   }
   .fin-num-pos { color: #5eead4 !important; font-weight: 600; }
   .fin-num-neg { color: #fca5a5 !important; font-weight: 600; }
@@ -242,14 +259,14 @@ def inject_fin_ui_styles() -> None:
     display: flex !important;
     align-items: center !important;
     width: 100% !important;
-    margin: 0 0 0.28rem 0 !important;
-    padding: 0.4rem 0.6rem !important;
-    border-radius: 10px !important;
+    margin: 0 0 0.2rem 0 !important;
+    padding: 0.28rem 0.45rem !important;
+    border-radius: 8px !important;
     border: 1px solid rgba(100, 116, 139, 0.22) !important;
     border-left: 3px solid transparent !important;
     background: rgba(15, 23, 42, 0.45) !important;
     font-weight: 600 !important;
-    font-size: 0.84rem !important;
+    font-size: 0.74rem !important;
     color: #cbd5e1 !important;
   }
   .fin-nav-radio [data-testid="stRadio"] label:has(input:checked) {
@@ -280,18 +297,58 @@ def inject_fin_ui_styles() -> None:
     color: #7dd3fc;
   }
 
-  /* KI-Chat kompakter in linker Sidebar */
-  .fin-lumo-title {
-    margin-top: 0.15rem !important;
+  /* Obere Filterzeile: ein Raster, gleiche Höhen */
+  .fin-top-wrap {
+    border-radius: 12px;
+    border: 1px solid rgba(94, 234, 212, 0.12);
+    background: rgba(12, 18, 30, 0.55);
+    padding: 0.45rem 0.65rem 0.5rem;
+    margin-bottom: 0.65rem;
   }
-  div[data-testid="stVerticalBlock"] div[data-testid="stChatMessage"] {
-    background: rgba(15, 23, 42, 0.55);
-    border: 1px solid rgba(100, 116, 139, 0.22);
+  .fin-top-field-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin: 0 0 0.2rem 0;
+    line-height: 1.2;
+  }
+  .fin-top-wrap [data-testid="stVerticalBlock"] {
+    gap: 0.25rem !important;
+  }
+  .fin-top-wrap .stButton > button {
+    padding: 0.35rem 0.5rem !important;
+    font-size: 0.78rem !important;
+    min-height: 2.1rem !important;
+  }
+  .fin-top-wrap [data-testid="stCheckbox"] label p {
+    font-size: 0.76rem !important;
+    margin: 0 !important;
+  }
+
+  /* KI-Chat kompakt unter Navigation */
+  .fin-sidebar-lumo {
+    margin: 0 0 0.35rem 0;
+    padding: 0.35rem 0.4rem 0.45rem;
     border-radius: 10px;
-    padding: 0.3rem 0.5rem;
+    border: 1px solid rgba(94, 234, 212, 0.1);
+    background: rgba(8, 12, 22, 0.45);
   }
-  div[data-testid="stVerticalBlock"] div[data-testid="stChatInput"] textarea {
-    min-height: 2.25rem !important;
+  .fin-sidebar-lumo div[data-testid="stChatMessage"] {
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    border-radius: 8px;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.78rem;
+  }
+  .fin-sidebar-lumo div[data-testid="stChatInput"] textarea {
+    min-height: 2rem !important;
+    font-size: 0.8rem !important;
+  }
+  .fin-sidebar-lumo .stButton > button {
+    padding: 0.3rem 0.45rem !important;
+    font-size: 0.74rem !important;
   }
 </style>
         """,

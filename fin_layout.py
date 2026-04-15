@@ -1,4 +1,4 @@
-"""Neues 3-Spalten-UI: Navigation | Lumo | (Hauptbereich wird in app.py gefüllt)."""
+"""Finanz-UI: linke Spalte (Navigation + LUMO + Werkzeuge), Hauptbereich in app.py."""
 from __future__ import annotations
 
 import json
@@ -130,7 +130,34 @@ def render_main_top_bar() -> None:
     fm = int(st.session_state.fin_ctx_month)
     y_idx = min(max(0, fy - 2000), len(y_opts) - 1)
 
-    c1, c2, c3, c4 = st.columns([2.1, 1, 1, 1], gap="medium")
+    _months = (
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    )
+    m_opts = list(range(1, 13))
+
+    st.markdown('<div class="fin-top-wrap">', unsafe_allow_html=True)
+    h1, h2, h3, h4 = st.columns([2.15, 0.62, 0.88, 0.52], gap="small")
+    with h1:
+        st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
+    with h2:
+        st.markdown('<p class="fin-top-field-label">Jahr</p>', unsafe_allow_html=True)
+    with h3:
+        st.markdown('<p class="fin-top-field-label">Monat</p>', unsafe_allow_html=True)
+    with h4:
+        st.markdown('<p class="fin-top-field-label">Ansicht</p>', unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns([2.15, 0.62, 0.88, 0.52], gap="small", vertical_alignment="bottom")
     with c1:
         picked = st.selectbox(
             "Familie",
@@ -139,44 +166,30 @@ def render_main_top_bar() -> None:
             format_func=lambda k: labels_map.get(k, k),
             key="fin_family_ctx",
             label_visibility="collapsed",
+            help=(
+                "Haushalt: gemeinsame Kennzahlen, keine PDF-Zuordnung. "
+                "Person: gefiltert; unten optional Auto-Zuordnung beim Import."
+            ),
         )
         st.session_state.docu_context_key = picked
-        st.caption(
-            "**Haushalt:** gemeinsame Kennzahlen-Ansicht — **keine** PDF-/Dokument-Zuordnung. "
-            "**Person:** gefilterte Ansicht; optional Auto-Zuordnung neuer Imports (siehe unten)."
-        )
     with c2:
         st.session_state.fin_ctx_year = st.selectbox(
             "Jahr",
             y_opts,
             index=y_idx,
             key="fin_top_year",
+            label_visibility="collapsed",
         )
     with c3:
-        m_opts = list(range(1, 13))
-        _months = (
-            "Januar",
-            "Februar",
-            "März",
-            "April",
-            "Mai",
-            "Juni",
-            "Juli",
-            "August",
-            "September",
-            "Oktober",
-            "November",
-            "Dezember",
-        )
         st.session_state.fin_ctx_month = st.selectbox(
             "Monat",
             m_opts,
             index=max(0, min(11, fm - 1)),
             format_func=lambda x: _months[x - 1],
             key="fin_top_month",
+            label_visibility="collapsed",
         )
     with c4:
-        st.write("")
         if st.button("Update", key="fin_top_update", type="primary", use_container_width=True):
             st.rerun()
 
@@ -187,10 +200,9 @@ def render_main_top_bar() -> None:
         "Neue PDF-Imports der gewählten Person zuordnen",
         key="docu_assign_import_to_context",
         disabled=not is_person,
-        help="Nur aktiv, wenn oben eine **einzelne Person** gewählt ist — nicht im Haushalt-Modus.",
+        help="Nur bei einer einzelnen Person — nicht im Haushalt-Modus.",
     )
-    if not is_person:
-        st.caption("Im Haushalt-Modus deaktiviert: Dokumente immer einer **Person** zuweisen.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_reload_button() -> None:
@@ -263,7 +275,12 @@ def render_navigation_column(
     st.session_state.current_nav = picked
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<p class="fin-nav-heading">PDF Upload</p>', unsafe_allow_html=True)
+    render_lumo_column(compact=True)
+
+    st.markdown(
+        '<p class="fin-nav-heading fin-nav-heading-spaced">PDF &amp; Werkzeuge</p>',
+        unsafe_allow_html=True,
+    )
     st.caption("200MB pro Datei – PDF")
     up = st.file_uploader(
         "PDF",
@@ -410,27 +427,34 @@ def render_navigation_column(
         st.markdown(PRIVACY_UI_DE)
 
 
-def render_lumo_column() -> None:
+def render_lumo_column(*, compact: bool = False) -> None:
+    wrap_cls = "fin-sidebar-lumo" if compact else ""
+    if wrap_cls:
+        st.markdown(f'<div class="{wrap_cls}">', unsafe_allow_html=True)
+
     st.markdown(
-        '<p class="fin-lumo-title" style="margin:0 0 0.35rem 0;">KI-Chat (LUMO)</p>',
+        '<p class="fin-lumo-title">KI-Chat (LUMO)</p>',
         unsafe_allow_html=True,
     )
 
-    a1, a2 = st.columns([0.35, 0.65])
+    av_w = 36 if compact else 44
+    a1, a2 = st.columns([0.28, 0.72])
     with a1:
         if LUMO_AVATAR_PATH.is_file():
-            st.image(str(LUMO_AVATAR_PATH.resolve()), width=52)
+            st.image(str(LUMO_AVATAR_PATH.resolve()), width=av_w)
         else:
             st.markdown("### " + "\u2728")
     with a2:
         st.markdown(
-            '<p class="fin-lumo-greet" style="margin:0;">'
-            "Hallo! Ich bin Lumo \U0001f60a Wie kann ich dir helfen?</p>",
+            '<p class="fin-lumo-greet">'
+            "Hallo! Ich bin Lumo — wie kann ich helfen?</p>",
             unsafe_allow_html=True,
         )
 
     if not os.environ.get("OPENAI_API_KEY"):
         st.info("Bitte `OPENAI_API_KEY` setzen, um mit Lumo zu chatten.")
+        if wrap_cls:
+            st.markdown("</div>", unsafe_allow_html=True)
         return
 
     _ensure_chat()
@@ -470,7 +494,8 @@ def render_lumo_column() -> None:
             )
         st.rerun()
 
-    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", "280"))
+    _def_h = "200" if compact else "280"
+    sb_msg = int(os.environ.get("DOCU_SIDEBAR_CHAT_MSG", _def_h))
     try:
         scroll = st.container(height=sb_msg, border=True)
     except TypeError:
@@ -520,3 +545,6 @@ def render_lumo_column() -> None:
                 {"role": "assistant", "content": f"**Fehler:** {e}"}
             )
         st.rerun()
+
+    if wrap_cls:
+        st.markdown("</div>", unsafe_allow_html=True)

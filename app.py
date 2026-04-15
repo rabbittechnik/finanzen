@@ -50,7 +50,7 @@ from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from pwa_inject import inject_pwa_tags
 from doc_context import filter_documents_by_context, normalize_docu_context_key
 from fin_dashboard import render_fin_dashboard
-from fin_layout import render_lumo_column, render_main_top_bar, render_navigation_column
+from fin_layout import render_main_top_bar, render_navigation_column
 from fin_ui_theme import inject_fin_ui_styles
 from household_aggregate import aggregate_owner_totals
 
@@ -527,8 +527,6 @@ def main() -> None:
             apply_import_owner=_apply_import_owner,
             enqueue_payment=_enqueue_payment_prompt,
         )
-        st.divider()
-        render_lumo_column()
 
     with main_c:
         render_main_top_bar()
