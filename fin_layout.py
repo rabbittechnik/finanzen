@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Callable
 
@@ -306,6 +307,7 @@ def _smtp_test_sidebar() -> None:
                     )
                 st.success(f"Gesendet an {frm}")
             except Exception as e:
+                logging.exception("SMTP Testmail fehlgeschlagen")
                 st.error(str(e))
 
 
