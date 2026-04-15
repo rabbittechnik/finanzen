@@ -296,27 +296,23 @@ def inject_fin_ui_styles() -> None:
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) {
     border-color: rgba(94, 234, 212, 0.16) !important;
     background: rgba(12, 18, 30, 0.55) !important;
-    border-radius: 12px !important;
-    padding: 0.35rem 0.55rem 0.45rem !important;
-    margin-bottom: 0.55rem !important;
+    border-radius: 10px !important;
+    padding: 0.2rem 0.45rem 0.28rem !important;
+    margin-bottom: 0.45rem !important;
   }
   .fin-header-title {
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     font-weight: 700;
     letter-spacing: -0.02em;
     color: #f8fafc;
     margin: 0;
-    line-height: 1.25;
+    line-height: 1.2;
     text-shadow: 0 0 14px rgba(45, 212, 191, 0.18);
-  }
-  .fin-header-title-gap {
-    display: block;
-    min-height: 0.25rem;
   }
   .fin-header-assign-hint {
     display: block;
     height: 0;
-    margin: 0.2rem 0 0.05rem 0;
+    margin: 0.1rem 0 0.02rem 0;
     border-top: 1px solid rgba(94, 234, 212, 0.1);
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stCheckbox"] label p {
@@ -324,43 +320,31 @@ def inject_fin_ui_styles() -> None:
     margin: 0 !important;
   }
   .fin-top-field-label {
-    font-size: 0.62rem;
+    font-size: 0.58rem;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: #64748b;
-    margin: 0 0 0.2rem 0;
-    line-height: 1.2;
+    margin: 0 0 0.06rem 0;
+    line-height: 1.15;
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stVerticalBlock"] {
-    gap: 0.2rem !important;
+    gap: 0.12rem !important;
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) .stButton > button {
-    padding: 0.32rem 0.48rem !important;
-    font-size: 0.76rem !important;
-    min-height: 2rem !important;
+    padding: 0.28rem 0.42rem !important;
+    font-size: 0.74rem !important;
+    min-height: 1.85rem !important;
   }
 
-  /* PDF-Upload in Kopfzeile: flach, Hinweis 200 MB seitlich */
-  .fin-header-pdf-meta {
-    margin: 0;
-    padding: 0 0 0 0.15rem;
-    font-size: 0.72rem;
-    line-height: 1.25;
-    color: #94a3b8;
-    white-space: nowrap;
-  }
-  .fin-header-pdf-meta strong {
-    color: #cbd5e1;
-    font-weight: 600;
-  }
+  /* PDF-Upload: eine Zeile Größen-Hinweis (Streamlit), nicht doppelt */
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] {
     margin-bottom: 0 !important;
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] section {
-    min-height: 2.15rem !important;
-    max-height: 3.25rem !important;
-    padding: 0.2rem 0.45rem !important;
+    min-height: 1.95rem !important;
+    max-height: 2.85rem !important;
+    padding: 0.12rem 0.38rem !important;
     border-radius: 8px !important;
   }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] section > div {
@@ -368,14 +352,16 @@ def inject_fin_ui_styles() -> None:
     padding-top: 0 !important;
     padding-bottom: 0 !important;
   }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] button {
+    padding: 0.2rem 0.45rem !important;
+    font-size: 0.72rem !important;
+    min-height: 1.65rem !important;
+  }
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] small,
   div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] p {
-    display: none !important;
-  }
-  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] button {
-    padding: 0.22rem 0.5rem !important;
-    font-size: 0.74rem !important;
-    min-height: 1.75rem !important;
+    font-size: 0.65rem !important;
+    line-height: 1.2 !important;
+    margin: 0 !important;
   }
   /* KI-Chat kompakt unter Navigation */
   .fin-sidebar-lumo {

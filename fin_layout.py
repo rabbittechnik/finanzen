@@ -181,7 +181,11 @@ def _render_global_header_inner(
     apply_import_owner: Callable[[int], None],
     enqueue_payment: Callable[[int], None],
 ) -> None:
-    la, lb, lc, ld, le, lf = st.columns([1.35, 1.5, 1.55, 0.52, 0.72, 0.62], gap="small")
+    la, lb, lc, ld, le, lf = st.columns(
+        [1.35, 1.5, 1.55, 0.52, 0.72, 0.62],
+        gap="small",
+        vertical_alignment="top",
+    )
     with la:
         st.markdown(
             '<p class="fin-header-title">Finanzen – Dokumenten-Organizer</p>',
@@ -189,37 +193,13 @@ def _render_global_header_inner(
         )
     with lb:
         st.markdown('<p class="fin-top-field-label">PDF</p>', unsafe_allow_html=True)
-    with lc:
-        st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
-    with ld:
-        st.markdown('<p class="fin-top-field-label">Jahr</p>', unsafe_allow_html=True)
-    with le:
-        st.markdown('<p class="fin-top-field-label">Monat</p>', unsafe_allow_html=True)
-    with lf:
-        st.markdown('<p class="fin-top-field-label">Aktualisieren</p>', unsafe_allow_html=True)
-
-    ca, cb, cc, cd, ce, cf = st.columns(
-        [1.35, 1.5, 1.55, 0.52, 0.72, 0.62],
-        gap="small",
-        vertical_alignment="bottom",
-    )
-    with ca:
-        st.markdown('<span class="fin-header-title-gap"></span>', unsafe_allow_html=True)
-    with cb:
-        up_row = st.columns([1, 0.34], gap="small", vertical_alignment="center")
-        with up_row[0]:
-            up = st.file_uploader(
-                "PDF",
-                type=["pdf"],
-                accept_multiple_files=True,
-                label_visibility="collapsed",
-                key="fin_pdf_up",
-            )
-        with up_row[1]:
-            st.markdown(
-                '<p class="fin-header-pdf-meta">max. <strong>200 MB</strong> · PDF</p>',
-                unsafe_allow_html=True,
-            )
+        up = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+            key="fin_pdf_up",
+        )
         act_row = st.columns([1, 0.42], gap="small", vertical_alignment="center")
         with act_row[0]:
             auto_import = st.checkbox(
@@ -250,7 +230,8 @@ def _render_global_header_inner(
                         apply_import_owner(int(r["id"]))
                         enqueue_payment(int(r["id"]))
             st.rerun()
-    with cc:
+    with lc:
+        st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
         picked = st.selectbox(
             "Familie",
             keys,
@@ -264,7 +245,8 @@ def _render_global_header_inner(
             ),
         )
         st.session_state.docu_context_key = picked
-    with cd:
+    with ld:
+        st.markdown('<p class="fin-top-field-label">Jahr</p>', unsafe_allow_html=True)
         st.session_state.fin_ctx_year = st.selectbox(
             "Jahr",
             y_opts,
@@ -272,7 +254,8 @@ def _render_global_header_inner(
             key="fin_top_year",
             label_visibility="collapsed",
         )
-    with ce:
+    with le:
+        st.markdown('<p class="fin-top-field-label">Monat</p>', unsafe_allow_html=True)
         st.session_state.fin_ctx_month = st.selectbox(
             "Monat",
             m_opts,
@@ -281,7 +264,8 @@ def _render_global_header_inner(
             key="fin_top_month",
             label_visibility="collapsed",
         )
-    with cf:
+    with lf:
+        st.markdown('<p class="fin-top-field-label">Aktualisieren</p>', unsafe_allow_html=True)
         if st.button("Aktualisieren", key="fin_top_update", type="primary", use_container_width=True):
             st.rerun()
 

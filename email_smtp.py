@@ -11,10 +11,12 @@ standardmäßig **IPv4 vor IPv6** versucht. Optional: ``DOCU_SMTP_ADDRESS_FAMILY
 from __future__ import annotations
 
 import os
+import re
 import socket
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 
 def smtp_configured() -> bool:
@@ -57,6 +59,34 @@ def _raise_smtp_unreachable(host: str, port: int, last: BaseException | None) ->
     raise OSError(f"SMTP: Keine Adresse für {host!r}:{port}.")
 
 
+def _reply_pair(conn: smtplib.SMTP) -> tuple[int, bytes | str]:
+    """getreply() liefert (code, msg); bei Abweichungen klare Fehlermeldung statt ValueError."""
+    raw = conn.getreply()
+    if isinstance(raw, tuple) and len(raw) == 2:
+        return raw[0], raw[1]
+    raise OSError(f"SMTP: unerwartete Server-Antwort: {raw!r}")
+
+
+def _header_email(addr: str) -> str:
+    """Nur die E-Mail-Adresse für From/To (robust bei „Name <a@b>“ und fehlerhaften Parsern)."""
+    s = (addr or "").strip()
+    if not s:
+        return ""
+    try:
+        parsed = parseaddr(s)
+    except Exception:
+        parsed = ("", "")
+    if isinstance(parsed, tuple) and len(parsed) == 2:
+        mail = (parsed[1] or "").strip()
+        if mail and "@" in mail:
+            return mail
+    m = re.search(r"<([^<>@]+@[^<>@]+)>", s)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"([A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", s)
+    return m.group(1).strip() if m else s
+
+
 def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
     """Versendet eine einfache Text-Mail (TLS/STARTTLS je nach Port)."""
     host = (os.environ.get("DOCU_SMTP_HOST") or "").strip()
@@ -69,14 +99,18 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
     if not (host and user and password and from_addr):
         raise RuntimeError("SMTP nicht vollständig konfiguriert (DOCU_SMTP_*).")
 
-    to_addr = (to_addr or "").strip()
-    if not to_addr or "@" not in to_addr:
+    to_raw = (to_addr or "").strip()
+    to_norm = _header_email(to_raw)
+    from_norm = _header_email(from_addr)
+    if not to_norm or "@" not in to_norm:
         raise ValueError("Ungültige Empfänger-Adresse.")
+    if not from_norm or "@" not in from_norm:
+        raise ValueError("Ungültige Absender-Adresse (DOCU_SMTP_FROM).")
 
     msg = EmailMessage()
     msg["Subject"] = subject.strip() or "(ohne Betreff)"
-    msg["From"] = from_addr
-    msg["To"] = to_addr
+    msg["From"] = from_norm
+    msg["To"] = to_norm
     msg.set_content(body or "")
 
     candidates = _smtp_sockaddr_candidates(host, port)
@@ -112,7 +146,7 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
                 smtp_ssl._host = host
                 smtp_ssl.sock = tls_sock
                 smtp_ssl.file = tls_sock.makefile("rb")
-                code, _intro = smtp_ssl.getreply()
+                code, _intro = _reply_pair(smtp_ssl)
                 if code != 220:
                     raise smtplib.SMTPConnectError(code, _intro)
                 smtp_ssl.login(user, password)
@@ -155,7 +189,7 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
             smtp_plain._host = host
             smtp_plain.sock = socket.create_connection(sockaddr, timeout=timeout)
             smtp_plain.file = smtp_plain.sock.makefile("rb")
-            code, _intro = smtp_plain.getreply()
+            code, _intro = _reply_pair(smtp_plain)
             if code != 220:
                 raise smtplib.SMTPConnectError(code, _intro)
             smtp_plain.ehlo()
