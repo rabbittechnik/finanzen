@@ -191,16 +191,7 @@ def _render_global_header_inner(
             '<p class="fin-header-title">Finanzen – Dokumenten-Organizer</p>',
             unsafe_allow_html=True,
         )
-    with lb:
-        st.markdown('<p class="fin-top-field-label">PDF</p>', unsafe_allow_html=True)
-        up = st.file_uploader(
-            "PDF",
-            type=["pdf"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-            key="fin_pdf_up",
-        )
-        act_row = st.columns([1, 0.85], gap="small", vertical_alignment="center")
+        act_row = st.columns([1, 1], gap="small", vertical_alignment="center")
         with act_row[0]:
             auto_import = st.checkbox(
                 "Sofort einlesen",
@@ -214,6 +205,15 @@ def _render_global_header_inner(
                 key="fin_pdf_go",
                 use_container_width=True,
             )
+    with lb:
+        st.markdown('<p class="fin-top-field-label">PDF</p>', unsafe_allow_html=True)
+        up = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+            key="fin_pdf_up",
+        )
         if do_upload and up:
             for f in up:
                 path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
