@@ -294,18 +294,23 @@ def _smtp_test_sidebar() -> None:
     if not smtp_configured():
         return
     if st.button("SMTP Testmail", key="fin_smtp_test", use_container_width=True):
-        frm = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
-        if not frm:
-            st.error("`DOCU_SMTP_FROM` fehlt.")
+        to = (
+            os.environ.get("DOCU_SMTP_TEST_TO")
+            or os.environ.get("DOCU_SMTP_USER")
+            or os.environ.get("DOCU_SMTP_FROM")
+            or ""
+        ).strip()
+        if not to:
+            st.error("`DOCU_SMTP_TEST_TO` oder `DOCU_SMTP_FROM` fehlt.")
         else:
             try:
                 with st.spinner("Sende …"):
                     send_email_smtp(
-                        to_addr=frm,
+                        to_addr=to,
                         subject="Docu-Organizer — SMTP-Test",
                         body="Testmail aus dem Finanz-UI.\n",
                     )
-                st.success(f"Gesendet an {frm}")
+                st.success(f"Gesendet an {to}")
             except Exception as e:
                 logging.exception("SMTP Testmail fehlgeschlagen")
                 st.error(str(e))
