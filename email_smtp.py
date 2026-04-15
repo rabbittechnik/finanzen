@@ -1,14 +1,16 @@
-"""Optionaler E-Mail-Versand per SMTP (nur nach expliziter Nutzeraktion in der UI).
+"""E-Mail-Versand: bevorzugt Resend API (HTTPS), Fallback auf SMTP.
 
-Typischer Anbieter **Gmail**: ``DOCU_SMTP_HOST=smtp.gmail.com``, Port ``587``,
-``DOCU_SMTP_USER`` / ``DOCU_SMTP_FROM`` = Gmail-Adresse, ``DOCU_SMTP_PASSWORD`` = Google-**App-Passwort**
-(nicht das normale Anmeldepasswort). Siehe README.
+**Resend (empfohlen für Railway/Cloud):**
+``DOCU_RESEND_API_KEY`` setzen, ``DOCU_SMTP_FROM`` als Absender.
+Domain muss in Resend verifiziert sein. Kostenlos bis 3 000 Mails/Monat.
 
-``socket.create_connection`` versucht automatisch alle Adressen (IPv4 + IPv6) und fällt bei
-Fehlschlag auf die nächste zurück. Optional: ``DOCU_SMTP_ADDRESS_FAMILY=ipv4`` erzwingt nur IPv4.
+**SMTP (Fallback, z. B. lokal):**
+``DOCU_SMTP_HOST``, ``DOCU_SMTP_USER``, ``DOCU_SMTP_PASSWORD``, ``DOCU_SMTP_FROM`` setzen.
+Port 465 (SSL) oder 587 (STARTTLS). Optional: ``DOCU_SMTP_ADDRESS_FAMILY=ipv4``.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import socket
@@ -17,8 +19,14 @@ import ssl
 from email.message import EmailMessage
 from email.utils import parseaddr
 
+log = logging.getLogger(__name__)
 
-def smtp_configured() -> bool:
+
+def _resend_configured() -> bool:
+    return bool((os.environ.get("DOCU_RESEND_API_KEY") or "").strip())
+
+
+def _smtp_configured() -> bool:
     return bool(
         (os.environ.get("DOCU_SMTP_HOST") or "").strip()
         and (os.environ.get("DOCU_SMTP_USER") or "").strip()
@@ -27,8 +35,13 @@ def smtp_configured() -> bool:
     )
 
 
+def smtp_configured() -> bool:
+    """True wenn Resend ODER SMTP konfiguriert ist."""
+    return _resend_configured() or _smtp_configured()
+
+
 def _header_email(addr: str) -> str:
-    """Nur die E-Mail-Adresse für From/To (robust bei „Name <a@b>" und fehlerhaften Parsern)."""
+    """Nur die E-Mail-Adresse für From/To."""
     s = (addr or "").strip()
     if not s:
         return ""
@@ -46,6 +59,32 @@ def _header_email(addr: str) -> str:
     m = re.search(r"([A-Za-z0-9._+%-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", s)
     return m.group(1).strip() if m else s
 
+
+# ---------------------------------------------------------------------------
+# Resend (HTTPS, Port 443 — funktioniert auf Railway)
+# ---------------------------------------------------------------------------
+
+def _send_via_resend(*, to_addr: str, subject: str, body: str, from_addr: str) -> None:
+    import resend
+
+    api_key = (os.environ.get("DOCU_RESEND_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("DOCU_RESEND_API_KEY fehlt.")
+    resend.api_key = api_key
+
+    params: dict = {
+        "from": from_addr,
+        "to": [to_addr],
+        "subject": subject or "(ohne Betreff)",
+        "text": body or "",
+    }
+    result = resend.Emails.send(params)
+    log.info("Resend OK: id=%s", result.get("id") if isinstance(result, dict) else result)
+
+
+# ---------------------------------------------------------------------------
+# SMTP (Fallback für lokale / Nicht-Railway-Umgebungen)
+# ---------------------------------------------------------------------------
 
 def _resolve_smtp_host(host: str, port: int) -> str:
     """Bei DOCU_SMTP_ADDRESS_FAMILY=ipv4/ipv6 zur passenden IP-Adresse auflösen."""
@@ -66,29 +105,19 @@ def _resolve_smtp_host(host: str, port: int) -> str:
     return host
 
 
-def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
-    """Versendet eine einfache Text-Mail (TLS/STARTTLS je nach Port)."""
+def _send_via_smtp(*, to_addr: str, subject: str, body: str, from_addr: str) -> None:
     host = (os.environ.get("DOCU_SMTP_HOST") or "").strip()
     user = (os.environ.get("DOCU_SMTP_USER") or "").strip()
-    # Gmail-App-Passwörter werden oft mit Leerzeichen gruppiert — für SMTP ohne Spaces verwenden.
     password = "".join((os.environ.get("DOCU_SMTP_PASSWORD") or "").split())
-    from_addr = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
     port = int((os.environ.get("DOCU_SMTP_PORT") or "587").strip() or "587")
     timeout = float((os.environ.get("DOCU_SMTP_TIMEOUT") or "60").strip() or "60")
-    if not (host and user and password and from_addr):
+    if not (host and user and password):
         raise RuntimeError("SMTP nicht vollständig konfiguriert (DOCU_SMTP_*).")
-
-    to_norm = _header_email(to_addr)
-    from_norm = _header_email(from_addr)
-    if not to_norm or "@" not in to_norm:
-        raise ValueError("Ungültige Empfänger-Adresse.")
-    if not from_norm or "@" not in from_norm:
-        raise ValueError("Ungültige Absender-Adresse (DOCU_SMTP_FROM).")
 
     msg = EmailMessage()
     msg["Subject"] = subject.strip() or "(ohne Betreff)"
-    msg["From"] = from_norm
-    msg["To"] = to_norm
+    msg["From"] = from_addr
+    msg["To"] = to_addr
     msg.set_content(body or "")
 
     context = ssl.create_default_context()
@@ -107,3 +136,31 @@ def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
             conn.starttls(context=context)
             conn.login(user, password)
             conn.send_message(msg)
+
+
+# ---------------------------------------------------------------------------
+# Öffentliche API
+# ---------------------------------------------------------------------------
+
+def send_email_smtp(*, to_addr: str, subject: str, body: str) -> None:
+    """Versendet eine E-Mail: Resend (wenn konfiguriert), sonst SMTP."""
+    from_addr = (os.environ.get("DOCU_SMTP_FROM") or "").strip()
+    if not from_addr:
+        raise RuntimeError("DOCU_SMTP_FROM fehlt.")
+
+    to_norm = _header_email(to_addr)
+    from_norm = _header_email(from_addr)
+    if not to_norm or "@" not in to_norm:
+        raise ValueError("Ungültige Empfänger-Adresse.")
+    if not from_norm or "@" not in from_norm:
+        raise ValueError("Ungültige Absender-Adresse (DOCU_SMTP_FROM).")
+
+    if _resend_configured():
+        _send_via_resend(to_addr=to_norm, subject=subject, body=body, from_addr=from_norm)
+    elif _smtp_configured():
+        _send_via_smtp(to_addr=to_norm, subject=subject, body=body, from_addr=from_norm)
+    else:
+        raise RuntimeError(
+            "E-Mail nicht konfiguriert. Entweder DOCU_RESEND_API_KEY (empfohlen) "
+            "oder DOCU_SMTP_HOST/USER/PASSWORD/FROM setzen."
+        )
