@@ -188,7 +188,7 @@ def _render_global_header_inner(
             unsafe_allow_html=True,
         )
     with lb:
-        st.markdown('<p class="fin-top-field-label">PDF (max. 200MB)</p>', unsafe_allow_html=True)
+        st.markdown('<p class="fin-top-field-label">PDF</p>', unsafe_allow_html=True)
     with lc:
         st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
     with ld:
@@ -206,19 +206,35 @@ def _render_global_header_inner(
     with ca:
         st.markdown('<span class="fin-header-title-gap"></span>', unsafe_allow_html=True)
     with cb:
-        up = st.file_uploader(
-            "PDF",
-            type=["pdf"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-            key="fin_pdf_up",
-        )
-        auto_import = st.checkbox(
-            "Sofort einlesen",
-            value=True,
-            key="fin_pdf_auto",
-        )
-        if up and st.button("Upload starten", type="primary", key="fin_pdf_go", use_container_width=True):
+        up_row = st.columns([1, 0.34], gap="small", vertical_alignment="center")
+        with up_row[0]:
+            up = st.file_uploader(
+                "PDF",
+                type=["pdf"],
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                key="fin_pdf_up",
+            )
+        with up_row[1]:
+            st.markdown(
+                '<p class="fin-header-pdf-meta">max. <strong>200 MB</strong> · PDF</p>',
+                unsafe_allow_html=True,
+            )
+        act_row = st.columns([1, 0.42], gap="small", vertical_alignment="center")
+        with act_row[0]:
+            auto_import = st.checkbox(
+                "Sofort einlesen",
+                value=True,
+                key="fin_pdf_auto",
+            )
+        with act_row[1]:
+            do_upload = st.button(
+                "Upload starten",
+                type="primary",
+                key="fin_pdf_go",
+                use_container_width=True,
+            )
+        if do_upload and up:
             for f in up:
                 path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
                 if auto_import:

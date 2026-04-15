@@ -341,6 +341,42 @@ def inject_fin_ui_styles() -> None:
     min-height: 2rem !important;
   }
 
+  /* PDF-Upload in Kopfzeile: flach, Hinweis 200 MB seitlich */
+  .fin-header-pdf-meta {
+    margin: 0;
+    padding: 0 0 0 0.15rem;
+    font-size: 0.72rem;
+    line-height: 1.25;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+  .fin-header-pdf-meta strong {
+    color: #cbd5e1;
+    font-weight: 600;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] {
+    margin-bottom: 0 !important;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] section {
+    min-height: 2.15rem !important;
+    max-height: 3.25rem !important;
+    padding: 0.2rem 0.45rem !important;
+    border-radius: 8px !important;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] section > div {
+    min-height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] small,
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] p {
+    display: none !important;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stFileUploader"] button {
+    padding: 0.22rem 0.5rem !important;
+    font-size: 0.74rem !important;
+    min-height: 1.75rem !important;
+  }
   /* KI-Chat kompakt unter Navigation */
   .fin-sidebar-lumo {
     margin: 0 0 0.35rem 0;
