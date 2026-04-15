@@ -6,7 +6,6 @@ import os
 from typing import Any, Callable
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from config import LLM_TEXT_CHAR_LIMIT, LUMO_AVATAR_PATH
 from db import (
@@ -105,8 +104,12 @@ def _family_options() -> tuple[list[str], dict[str, str]]:
     return keys, labels
 
 
-def render_main_top_bar() -> None:
-    """Familie, Jahr, Monat, Update — steuert globale Filter."""
+def render_global_header_bar(
+    *,
+    apply_import_owner: Callable[[int], None],
+    enqueue_payment: Callable[[int], None],
+) -> None:
+    """Volle Breite: Titel, PDF-Upload, Familie/Jahr/Monat, Aktualisieren."""
     keys, labels_map = _family_options()
     cur = _doc_ctx()
     if cur == "all":
@@ -146,19 +149,92 @@ def render_main_top_bar() -> None:
     )
     m_opts = list(range(1, 13))
 
-    st.markdown('<div class="fin-top-wrap">', unsafe_allow_html=True)
-    h1, h2, h3, h4 = st.columns([2.15, 0.62, 0.88, 0.52], gap="small")
-    with h1:
-        st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
-    with h2:
-        st.markdown('<p class="fin-top-field-label">Jahr</p>', unsafe_allow_html=True)
-    with h3:
-        st.markdown('<p class="fin-top-field-label">Monat</p>', unsafe_allow_html=True)
-    with h4:
-        st.markdown('<p class="fin-top-field-label">Ansicht</p>', unsafe_allow_html=True)
+    try:
+        _hdr = st.container(border=True)
+    except TypeError:
+        _hdr = st.container()
+    with _hdr:
+        _render_global_header_inner(
+            keys=keys,
+            labels_map=labels_map,
+            idx=idx,
+            y_opts=y_opts,
+            y_idx=y_idx,
+            _months=_months,
+            m_opts=m_opts,
+            fm=fm,
+            apply_import_owner=apply_import_owner,
+            enqueue_payment=enqueue_payment,
+        )
 
-    c1, c2, c3, c4 = st.columns([2.15, 0.62, 0.88, 0.52], gap="small", vertical_alignment="bottom")
-    with c1:
+
+def _render_global_header_inner(
+    *,
+    keys: list[str],
+    labels_map: dict[str, str],
+    idx: int,
+    y_opts: list[int],
+    y_idx: int,
+    _months: tuple[str, ...],
+    m_opts: list[int],
+    fm: int,
+    apply_import_owner: Callable[[int], None],
+    enqueue_payment: Callable[[int], None],
+) -> None:
+    la, lb, lc, ld, le, lf = st.columns([1.35, 1.5, 1.55, 0.52, 0.72, 0.62], gap="small")
+    with la:
+        st.markdown(
+            '<p class="fin-header-title">Finanzen – Dokumenten-Organizer</p>',
+            unsafe_allow_html=True,
+        )
+    with lb:
+        st.markdown('<p class="fin-top-field-label">PDF (max. 200MB)</p>', unsafe_allow_html=True)
+    with lc:
+        st.markdown('<p class="fin-top-field-label">Familie / Kontext</p>', unsafe_allow_html=True)
+    with ld:
+        st.markdown('<p class="fin-top-field-label">Jahr</p>', unsafe_allow_html=True)
+    with le:
+        st.markdown('<p class="fin-top-field-label">Monat</p>', unsafe_allow_html=True)
+    with lf:
+        st.markdown('<p class="fin-top-field-label">Aktualisieren</p>', unsafe_allow_html=True)
+
+    ca, cb, cc, cd, ce, cf = st.columns(
+        [1.35, 1.5, 1.55, 0.52, 0.72, 0.62],
+        gap="small",
+        vertical_alignment="bottom",
+    )
+    with ca:
+        st.markdown('<span class="fin-header-title-gap"></span>', unsafe_allow_html=True)
+    with cb:
+        up = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+            key="fin_pdf_up",
+        )
+        auto_import = st.checkbox(
+            "Sofort einlesen",
+            value=True,
+            key="fin_pdf_auto",
+        )
+        if up and st.button("Upload starten", type="primary", key="fin_pdf_go", use_container_width=True):
+            for f in up:
+                path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
+                if auto_import:
+                    with st.spinner(f"Import: {path.name}…"):
+                        r = import_one_pdf(path)
+                    if r["status"] == "duplicate":
+                        st.warning(f"Duplikat: **{r['filename']}**")
+                    elif r["status"] == "error":
+                        st.error(r.get("message", "Fehler"))
+                    else:
+                        ocr = " (Scan?)" if r.get("needs_ocr") else ""
+                        st.success(f"Importiert: **{r['filename']}** → ID {r['id']}{ocr}")
+                        apply_import_owner(int(r["id"]))
+                        enqueue_payment(int(r["id"]))
+            st.rerun()
+    with cc:
         picked = st.selectbox(
             "Familie",
             keys,
@@ -172,7 +248,7 @@ def render_main_top_bar() -> None:
             ),
         )
         st.session_state.docu_context_key = picked
-    with c2:
+    with cd:
         st.session_state.fin_ctx_year = st.selectbox(
             "Jahr",
             y_opts,
@@ -180,7 +256,7 @@ def render_main_top_bar() -> None:
             key="fin_top_year",
             label_visibility="collapsed",
         )
-    with c3:
+    with ce:
         st.session_state.fin_ctx_month = st.selectbox(
             "Monat",
             m_opts,
@@ -189,46 +265,19 @@ def render_main_top_bar() -> None:
             key="fin_top_month",
             label_visibility="collapsed",
         )
-    with c4:
-        if st.button("Update", key="fin_top_update", type="primary", use_container_width=True):
+    with cf:
+        if st.button("Aktualisieren", key="fin_top_update", type="primary", use_container_width=True):
             st.rerun()
 
     is_person = str(st.session_state.get("docu_context_key") or "").startswith("person:")
     if not is_person:
         st.session_state.docu_assign_import_to_context = False
+    st.markdown('<p class="fin-header-assign-hint"></p>', unsafe_allow_html=True)
     st.checkbox(
         "Neue PDF-Imports der gewählten Person zuordnen",
         key="docu_assign_import_to_context",
         disabled=not is_person,
         help="Nur bei einer einzelnen Person — nicht im Haushalt-Modus.",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def _render_reload_button() -> None:
-    safe_id = "finAppReloadBtn"
-    components.html(
-        f"""
-<div style="font-family:Inter,Segoe UI,sans-serif;margin:0;">
-  <button type="button" id="{safe_id}" title="Seite neu laden"
-    style="width:100%;padding:0.5rem 0.65rem;border-radius:12px;cursor:pointer;font-weight:600;
-    font-size:0.85rem;color:#e2e8f0;background:rgba(30,41,59,0.85);
-    border:1px solid rgba(94,234,212,0.25);box-shadow:0 0 14px rgba(34,211,238,0.12);">
-    App neu laden
-  </button>
-</div>
-<script>
-(function(){{
-  var b = document.getElementById("{safe_id}");
-  if (!b) return;
-  b.addEventListener("click", function(){{
-    try {{ (window.top || window.parent || window).location.reload(); }}
-    catch(e) {{ window.location.reload(); }}
-  }});
-}})();
-</script>
-        """,
-        height=48,
     )
 
 
@@ -252,16 +301,7 @@ def _smtp_test_sidebar() -> None:
                 st.error(str(e))
 
 
-def render_navigation_column(
-    *,
-    apply_import_owner: Callable[[int], None],
-    enqueue_payment: Callable[[int], None],
-) -> None:
-    st.markdown(
-        '<p class="fin-brand-title">Finanzen – Dokumenten-Organizer</p>',
-        unsafe_allow_html=True,
-    )
-
+def render_navigation_column() -> None:
     st.markdown('<div class="fin-nav-radio">', unsafe_allow_html=True)
     if "fin_nav_radio" not in st.session_state:
         st.session_state.fin_nav_radio = st.session_state.get("current_nav", "home")
@@ -277,42 +317,7 @@ def render_navigation_column(
 
     render_lumo_column(compact=True)
 
-    st.markdown(
-        '<p class="fin-nav-heading fin-nav-heading-spaced">PDF &amp; Werkzeuge</p>',
-        unsafe_allow_html=True,
-    )
-    st.caption("200MB pro Datei – PDF")
-    up = st.file_uploader(
-        "PDF",
-        type=["pdf"],
-        accept_multiple_files=True,
-        label_visibility="collapsed",
-        key="fin_pdf_up",
-    )
-    auto_import = st.checkbox(
-        "Hochgeladene PDFs sofort einlesen",
-        value=True,
-        key="fin_pdf_auto",
-    )
-    if up and st.button("Upload starten", type="primary", key="fin_pdf_go", use_container_width=True):
-        for f in up:
-            path = save_uploaded_pdf_to_inbox(f.getvalue(), f.name)
-            if auto_import:
-                with st.spinner(f"Import: {path.name}…"):
-                    r = import_one_pdf(path)
-                if r["status"] == "duplicate":
-                    st.warning(f"Duplikat: **{r['filename']}**")
-                elif r["status"] == "error":
-                    st.error(r.get("message", "Fehler"))
-                else:
-                    ocr = " (Scan?)" if r.get("needs_ocr") else ""
-                    st.success(f"Importiert: **{r['filename']}** → ID {r['id']}{ocr}")
-                    apply_import_owner(int(r["id"]))
-                    enqueue_payment(int(r["id"]))
-        st.rerun()
-
     st.divider()
-    _render_reload_button()
 
     with st.expander("Hilfe & Tipps", expanded=False):
         st.markdown(

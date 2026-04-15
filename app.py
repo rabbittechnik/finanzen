@@ -50,7 +50,7 @@ from organizer_chat import SYSTEM_PROMPT, run_organizer_chat
 from pwa_inject import inject_pwa_tags
 from doc_context import filter_documents_by_context, normalize_docu_context_key
 from fin_dashboard import render_fin_dashboard
-from fin_layout import render_main_top_bar, render_navigation_column
+from fin_layout import render_global_header_bar, render_navigation_column
 from fin_ui_theme import inject_fin_ui_styles
 from household_aggregate import aggregate_owner_totals
 
@@ -521,15 +521,15 @@ def main() -> None:
     maybe_show_home_overlay()
 
     st.markdown('<div class="fin-app-wrap">', unsafe_allow_html=True)
+    render_global_header_bar(
+        apply_import_owner=_apply_import_owner,
+        enqueue_payment=_enqueue_payment_prompt,
+    )
     nav_c, main_c = st.columns([0.28, 0.72], gap="medium")
     with nav_c:
-        render_navigation_column(
-            apply_import_owner=_apply_import_owner,
-            enqueue_payment=_enqueue_payment_prompt,
-        )
+        render_navigation_column()
 
     with main_c:
-        render_main_top_bar()
         _render_payment_status_queue()
         _render_monthly_expense_queue()
         _render_owner_assignment_queue()
@@ -578,7 +578,7 @@ def main() -> None:
             st.write(
                 "Wenn dein Hosting einen gemeinsamen **Posteingang-Ordner** bereitstellt, "
                 "lege dort PDFs ab und importiere sie mit **Jetzt einlesen**. "
-                "Vom Rechner: **PDF hochladen** in der **linken Spalte**."
+                "Vom Rechner: **PDF hochladen** in der **Kopfzeile**."
             )
             if st.button("Jetzt einlesen", type="primary"):
                 with st.spinner("Import läuft…"):
@@ -608,7 +608,7 @@ def main() -> None:
             )
             if not rows:
                 st.info(
-                    "Noch keine Dokumente in diesem Bereich. PDFs in der **linken Spalte** oder "
+                    "Noch keine Dokumente in diesem Bereich. PDFs in der **Kopfzeile** oder "
                     "Tab **Posteingang** importieren, dann KI-Analyse."
                 )
             else:

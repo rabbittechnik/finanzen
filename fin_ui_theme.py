@@ -34,6 +34,11 @@ def inject_fin_ui_styles() -> None:
     background: transparent !important;
   }
 
+  section.main [data-testid="stMain"] .block-container {
+    padding-top: 0.35rem !important;
+    padding-bottom: 1rem !important;
+  }
+
   h1, h2, h3 {
     color: #f1f5f9 !important;
     font-weight: 600 !important;
@@ -43,24 +48,14 @@ def inject_fin_ui_styles() -> None:
     padding: 0.15rem 0.35rem 0.75rem 0.15rem;
   }
 
-  /* Erste Spalte (hat .fin-brand-title): scrollbar, Inhalt bleibt nutzbar */
-  div[data-testid="stHorizontalBlock"]:has(.fin-brand-title) > div[data-testid="column"]:first-child {
+  /* Erste Spalte (Navigation): scrollbar, Inhalt bleibt nutzbar */
+  div[data-testid="stHorizontalBlock"]:has(.fin-nav-radio) > div[data-testid="column"]:first-child {
     max-height: calc(100dvh - 5.25rem);
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 0.28rem;
     scrollbar-gutter: stable;
     align-self: start;
-  }
-
-  .fin-brand-title {
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #f8fafc;
-    line-height: 1.25;
-    margin: 0 0 0.45rem 0;
-    text-shadow: 0 0 18px rgba(45, 212, 191, 0.2);
   }
 
   .fin-nav-heading {
@@ -297,13 +292,36 @@ def inject_fin_ui_styles() -> None:
     color: #7dd3fc;
   }
 
-  /* Obere Filterzeile: ein Raster, gleiche Höhen */
-  .fin-top-wrap {
-    border-radius: 12px;
-    border: 1px solid rgba(94, 234, 212, 0.12);
-    background: rgba(12, 18, 30, 0.55);
-    padding: 0.45rem 0.65rem 0.5rem;
-    margin-bottom: 0.65rem;
+  /* Kopfzeile: gebündelter Block (st.container border=True) */
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) {
+    border-color: rgba(94, 234, 212, 0.16) !important;
+    background: rgba(12, 18, 30, 0.55) !important;
+    border-radius: 12px !important;
+    padding: 0.35rem 0.55rem 0.45rem !important;
+    margin-bottom: 0.55rem !important;
+  }
+  .fin-header-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #f8fafc;
+    margin: 0;
+    line-height: 1.25;
+    text-shadow: 0 0 14px rgba(45, 212, 191, 0.18);
+  }
+  .fin-header-title-gap {
+    display: block;
+    min-height: 0.25rem;
+  }
+  .fin-header-assign-hint {
+    display: block;
+    height: 0;
+    margin: 0.2rem 0 0.05rem 0;
+    border-top: 1px solid rgba(94, 234, 212, 0.1);
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stCheckbox"] label p {
+    font-size: 0.74rem !important;
+    margin: 0 !important;
   }
   .fin-top-field-label {
     font-size: 0.62rem;
@@ -314,17 +332,13 @@ def inject_fin_ui_styles() -> None:
     margin: 0 0 0.2rem 0;
     line-height: 1.2;
   }
-  .fin-top-wrap [data-testid="stVerticalBlock"] {
-    gap: 0.25rem !important;
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) [data-testid="stVerticalBlock"] {
+    gap: 0.2rem !important;
   }
-  .fin-top-wrap .stButton > button {
-    padding: 0.35rem 0.5rem !important;
-    font-size: 0.78rem !important;
-    min-height: 2.1rem !important;
-  }
-  .fin-top-wrap [data-testid="stCheckbox"] label p {
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) .stButton > button {
+    padding: 0.32rem 0.48rem !important;
     font-size: 0.76rem !important;
-    margin: 0 !important;
+    min-height: 2rem !important;
   }
 
   /* KI-Chat kompakt unter Navigation */
