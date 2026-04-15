@@ -339,7 +339,11 @@ def inject_fin_ui_styles() -> None:
     padding: 0.24rem 0.38rem !important;
     font-size: 0.7rem !important;
     min-height: 1.65rem !important;
+    min-width: 7.4rem !important;
     line-height: 1.15 !important;
+    white-space: nowrap !important;
+  }
+  div[data-testid="stVerticalBlockBorderWrapper"]:has(.fin-header-title) .stButton > button p {
     white-space: nowrap !important;
   }
 

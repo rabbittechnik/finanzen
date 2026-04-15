@@ -200,7 +200,7 @@ def _render_global_header_inner(
             label_visibility="collapsed",
             key="fin_pdf_up",
         )
-        act_row = st.columns([1, 0.56], gap="small", vertical_alignment="center")
+        act_row = st.columns([1, 0.85], gap="small", vertical_alignment="center")
         with act_row[0]:
             auto_import = st.checkbox(
                 "Sofort einlesen",
